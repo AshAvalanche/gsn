@@ -10,27 +10,54 @@ import "../packages/contracts/src/interfaces/IRelayHub.sol";
 /**
  * @title DeployPaymasters
  * @notice Foundry script to deploy GSN Paymaster contracts.
+ *         Reads configuration and previously deployed addresses from conf.json,
+ *         then writes new paymaster addresses back.
  *
- * @dev Usage (SingletonWhitelistPaymaster):
+ * @dev Usage:
  *   forge script script/DeployPaymasters.s.sol:DeployPaymasters \
  *     --rpc-url <RPC_URL> \
  *     --broadcast \
  *     --private-key <PRIVATE_KEY> \
  *     -vvvv
- *
- * @dev Environment variables:
- *   GSN_HUB_ADDRESS             - (required) Address of the deployed RelayHub
- *   GSN_FORWARDER_ADDRESS       - (required) Address of the deployed Forwarder
- *   GAS_USED_BY_POST            - (optional, default: 30000)
- *   PAYMASTER_FEE               - (optional, default: 15)
  */
 contract DeployPaymasters is Script {
-    function run() external {
-        address hubAddress = vm.envAddress("GSN_HUB_ADDRESS");
-        address forwarderAddress = vm.envAddress("GSN_FORWARDER_ADDRESS");
+    string constant CONFIG_PATH = "./conf.json";
 
-        uint256 gasUsedByPost = vm.envOr("GAS_USED_BY_POST", uint256(30_000));
-        uint256 paymasterFee = vm.envOr("PAYMASTER_FEE", uint256(15));
+    function run() external {
+        // ──────── Read conf.json ────────
+        string memory json = vm.readFile(CONFIG_PATH);
+
+        // Read previously deployed core addresses
+        address hubAddress = vm.parseJsonAddress(
+            json,
+            ".deployedAddresses.relayHub"
+        );
+        address forwarderAddress = vm.parseJsonAddress(
+            json,
+            ".deployedAddresses.forwarder"
+        );
+        require(
+            hubAddress != address(0),
+            "DeployPaymasters: relayHub not deployed yet, run DeployGSN first"
+        );
+        require(
+            forwarderAddress != address(0),
+            "DeployPaymasters: forwarder not deployed yet, run DeployGSN first"
+        );
+
+        // Read paymaster config
+        uint256 gasUsedByPost = vm.parseJsonUint(json, ".config.gasUsedByPost");
+        uint256 paymasterFee = vm.parseJsonUint(json, ".config.paymasterFee");
+        bool deployTestPaymaster = vm.parseJsonBool(
+            json,
+            ".config.deployTestPaymaster"
+        );
+        uint256 fundAmount = vm.parseJsonUint(
+            json,
+            ".config.fundPaymasterAmount"
+        );
+
+        // ──────── Start broadcast ────────
 
         vm.startBroadcast();
 
@@ -45,11 +72,9 @@ contract DeployPaymasters is Script {
         paymaster.setSharedConfiguration(gasUsedByPost, paymasterFee);
         paymaster.setRelayHub(IRelayHub(hubAddress));
         paymaster.setTrustedForwarder(forwarderAddress);
-
         console.log("SingletonWhitelistPaymaster configured");
 
-        // 2. Deploy TestPaymasterEverythingAccepted (Optional)
-        bool deployTestPaymaster = vm.envOr("DEPLOY_TEST_PAYMASTER", false);
+        // 2. Deploy TestPaymasterEverythingAccepted (optional)
         TestPaymasterEverythingAccepted testPaymaster;
 
         if (deployTestPaymaster) {
@@ -63,7 +88,6 @@ contract DeployPaymasters is Script {
         }
 
         // 3. Fund Paymasters
-        uint256 fundAmount = vm.envOr("FUND_PAYMASTER_AMOUNT", uint256(0));
         if (fundAmount > 0) {
             IRelayHub(hubAddress).depositFor{value: fundAmount}(
                 address(paymaster)
@@ -83,7 +107,21 @@ contract DeployPaymasters is Script {
 
         vm.stopBroadcast();
 
-        // Summary
+        // ──────── Write deployed addresses back to conf.json ────────
+        vm.writeJson(
+            vm.toString(address(paymaster)),
+            CONFIG_PATH,
+            ".deployedAddresses.singletonWhitelistPaymaster"
+        );
+        if (deployTestPaymaster) {
+            vm.writeJson(
+                vm.toString(address(testPaymaster)),
+                CONFIG_PATH,
+                ".deployedAddresses.testPaymasterEverythingAccepted"
+            );
+        }
+
+        // ──────── Summary ────────
         console.log("\n=== Paymaster Deployment Summary ===");
         console.log("SingletonWhitelistPaymaster:", address(paymaster));
         if (deployTestPaymaster) {
@@ -94,5 +132,6 @@ contract DeployPaymasters is Script {
         }
         console.log("RelayHub:                   ", hubAddress);
         console.log("Forwarder:                  ", forwarderAddress);
+        console.log("Addresses saved to conf.json");
     }
 }

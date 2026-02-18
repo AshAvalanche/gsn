@@ -1,0 +1,37 @@
+{
+  "config": {
+    "penalizeBlockDelay": 5,
+    "penalizeBlockExpiration": 60000,
+    "maxUnstakeDelay": 2592000,
+    "abandonmentDelay": 7776000,
+    "escheatmentDelay": 2592000,
+    "stakeBurnAddress": "0x000000000000000000000000000000000000dEaD",
+    "devAddress": "0x942A9A4adbaB3740b061be641A02969f0Ade46F7",
+    "registrationMaxAge": 15552000,
+    "maxWorkerCount": 10,
+    "gasReserve": 100000,
+    "postOverhead": 50000,
+    "gasOverhead": 30000,
+    "minimumUnstakeDelay": 15000,
+    "devFee": 0,
+    "baseRelayFee": 0,
+    "pctRelayFee": 0,
+    "deployTestToken": false,
+    "minimumStakeTokenAddress": "0x942A9A4adbaB3740b061be641A02969f0Ade46F7",
+    "minimumStakeAmount": "1000000000000000000",
+    "gasUsedByPost": 30000,
+    "paymasterFee": 15,
+    "deployTestPaymaster": false,
+    "fundPaymasterAmount": "0"
+  },
+  "deployedAddresses": {
+    "forwarder": "0x4Ae9feb458C6b97e6E4aFAF549dD981cBB2c7466",
+    "penalizer": "0x815680d086D54307621F4E5592F44062dfD9A91B",
+    "stakeManager": "0x72b7ea717614816d43feaAFa0b9dEAca2833eD7D",
+    "relayRegistrar": "0x131A429ecF80aE4f43d56f794dbed23CED52f438",
+    "relayHub": "0x657c8a3d20A094aE503A281f4c45d66731Dd8ab6",
+    "testWrappedNativeToken": "",
+    "singletonWhitelistPaymaster": "",
+    "testPaymasterEverythingAccepted": ""
+  }
+}

@@ -11,11 +11,10 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../packages/contracts/src/RelayHub.sol";
 import "../packages/contracts/src/test/TestWrappedNativeToken.sol";
 
-// ... (skipping unchanged parts)
-
 /**
  * @title DeployGSN
  * @notice Foundry script to deploy the core GSN contracts.
+ *         Reads configuration from conf.json and writes deployed addresses back.
  *
  * @dev Usage:
  *   forge script script/DeployGSN.s.sol:DeployGSN \
@@ -23,72 +22,110 @@ import "../packages/contracts/src/test/TestWrappedNativeToken.sol";
  *     --broadcast \
  *     --private-key <PRIVATE_KEY> \
  *     -vvvv
- *
- * @dev Environment variables (all optional – sensible defaults provided):
- *   PENALIZE_BLOCK_DELAY        - Penalizer block delay (default: 5)
- *   PENALIZE_BLOCK_EXPIRATION   - Penalizer block expiration (default: 60000)
- *   MAX_UNSTAKE_DELAY           - StakeManager max unstake delay in seconds (default: 2592000 = 30 days)
- *   ABANDONMENT_DELAY           - StakeManager abandonment delay in seconds (default: 7776000 = 90 days)
- *   ESCHEATMENT_DELAY           - StakeManager escheatment delay in seconds (default: 2592000 = 30 days)
- *   STAKE_BURN_ADDRESS          - Burn address for penalized stakes (default: 0x000...dEaD)
- *   DEV_ADDRESS                 - Developer address for fee collection (default: deployer)
- *   REGISTRATION_MAX_AGE        - RelayRegistrar max age in seconds (default: 15552000 = 180 days)
- *   MAX_WORKER_COUNT            - RelayHub max worker count (default: 10)
- *   GAS_RESERVE                 - RelayHub gas reserve (default: 100000)
- *   POST_OVERHEAD               - RelayHub post overhead (default: 50000)
- *   GAS_OVERHEAD                - RelayHub gas overhead (default: 30000)
- *   MINIMUM_UNSTAKE_DELAY       - RelayHub minimum unstake delay (default: 15000)
- *   DEV_FEE                     - RelayHub developer fee 0-99 (default: 0)
- *   BASE_RELAY_FEE              - RelayHub base relay fee in wei (default: 0)
- *   PCT_RELAY_FEE               - RelayHub percent relay fee (default: 0)
  */
 contract DeployGSN is Script {
+    string constant CONFIG_PATH = "./conf.json";
+
+    struct GSNConfig {
+        uint256 penalizeBlockDelay;
+        uint256 penalizeBlockExpiration;
+        uint256 maxUnstakeDelay;
+        uint256 abandonmentDelay;
+        uint256 escheatmentDelay;
+        address stakeBurnAddress;
+        address devAddress;
+        uint256 registrationMaxAge;
+        bool deployTestToken;
+        address minimumStakeTokenAddress;
+        uint256 minimumStakeAmount;
+    }
+
+    struct HubParams {
+        uint256 maxWorkerCount;
+        uint256 gasReserve;
+        uint256 postOverhead;
+        uint256 gasOverhead;
+        uint256 minimumUnstakeDelay;
+        uint256 devFee;
+        uint256 baseRelayFee;
+        uint256 pctRelayFee;
+    }
+
+    function _readConfig(
+        string memory json
+    ) internal pure returns (GSNConfig memory cfg) {
+        cfg.penalizeBlockDelay = vm.parseJsonUint(
+            json,
+            ".config.penalizeBlockDelay"
+        );
+        cfg.penalizeBlockExpiration = vm.parseJsonUint(
+            json,
+            ".config.penalizeBlockExpiration"
+        );
+        cfg.maxUnstakeDelay = vm.parseJsonUint(json, ".config.maxUnstakeDelay");
+        cfg.abandonmentDelay = vm.parseJsonUint(
+            json,
+            ".config.abandonmentDelay"
+        );
+        cfg.escheatmentDelay = vm.parseJsonUint(
+            json,
+            ".config.escheatmentDelay"
+        );
+        cfg.stakeBurnAddress = vm.parseJsonAddress(
+            json,
+            ".config.stakeBurnAddress"
+        );
+        cfg.devAddress = vm.parseJsonAddress(json, ".config.devAddress");
+        cfg.registrationMaxAge = vm.parseJsonUint(
+            json,
+            ".config.registrationMaxAge"
+        );
+        cfg.deployTestToken = vm.parseJsonBool(json, ".config.deployTestToken");
+        cfg.minimumStakeTokenAddress = vm.parseJsonAddress(
+            json,
+            ".config.minimumStakeTokenAddress"
+        );
+        cfg.minimumStakeAmount = vm.parseJsonUint(
+            json,
+            ".config.minimumStakeAmount"
+        );
+    }
+
+    function _readHubParams(
+        string memory json
+    ) internal pure returns (HubParams memory hp) {
+        hp.maxWorkerCount = vm.parseJsonUint(json, ".config.maxWorkerCount");
+        hp.gasReserve = vm.parseJsonUint(json, ".config.gasReserve");
+        hp.postOverhead = vm.parseJsonUint(json, ".config.postOverhead");
+        hp.gasOverhead = vm.parseJsonUint(json, ".config.gasOverhead");
+        hp.minimumUnstakeDelay = vm.parseJsonUint(
+            json,
+            ".config.minimumUnstakeDelay"
+        );
+        hp.devFee = vm.parseJsonUint(json, ".config.devFee");
+        hp.baseRelayFee = vm.parseJsonUint(json, ".config.baseRelayFee");
+        hp.pctRelayFee = vm.parseJsonUint(json, ".config.pctRelayFee");
+    }
+
     function run() external {
-        // ──────── Read env vars with defaults ────────
+        // ──────── Read conf.json ────────
+        string memory json = vm.readFile(CONFIG_PATH);
+        GSNConfig memory cfg = _readConfig(json);
+        HubParams memory hp = _readHubParams(json);
 
-        uint256 penalizeBlockDelay = vm.envOr(
-            "PENALIZE_BLOCK_DELAY",
-            uint256(5)
-        );
-        uint256 penalizeBlockExpiration = vm.envOr(
-            "PENALIZE_BLOCK_EXPIRATION",
-            uint256(60_000)
-        );
-
-        uint256 maxUnstakeDelay = vm.envOr(
-            "MAX_UNSTAKE_DELAY",
-            uint256(2_592_000)
-        ); // 30 days
-        uint256 abandonmentDelay = vm.envOr(
-            "ABANDONMENT_DELAY",
-            uint256(7_776_000)
-        ); // 90 days
-        uint256 escheatmentDelay = vm.envOr(
-            "ESCHEATMENT_DELAY",
-            uint256(2_592_000)
-        ); // 30 days
-        address stakeBurnAddress = vm.envOr(
-            "STAKE_BURN_ADDRESS",
-            address(0x000000000000000000000000000000000000dEaD)
-        );
-
-        uint256 registrationMaxAge = vm.envOr(
-            "REGISTRATION_MAX_AGE",
-            uint256(15_552_000)
-        ); // 180 days
+        // devAddress: if zero in config, use deployer
+        address deployer = msg.sender;
+        if (cfg.devAddress == address(0)) {
+            cfg.devAddress = deployer;
+        }
 
         // ──────── Start broadcast ────────
-
         vm.startBroadcast();
-
-        address deployer = msg.sender;
-        address devAddress = vm.envOr("DEV_ADDRESS", deployer);
 
         // 1. Deploy Forwarder
         Forwarder forwarder = new Forwarder();
         console.log("Forwarder deployed at:", address(forwarder));
 
-        // Register default request type & domain separator
         forwarder.registerRequestType(
             "RelayRequest",
             "RelayData relayData)RelayData(uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,uint256 transactionCalldataGasUsed,address relayWorker,address paymaster,address forwarder,bytes paymasterData,uint256 clientId)"
@@ -98,39 +135,107 @@ contract DeployGSN is Script {
 
         // 2. Deploy Penalizer
         Penalizer penalizer = new Penalizer(
-            penalizeBlockDelay,
-            penalizeBlockExpiration
+            cfg.penalizeBlockDelay,
+            cfg.penalizeBlockExpiration
         );
         console.log("Penalizer deployed at:", address(penalizer));
 
         // 3. Deploy StakeManager
         StakeManager stakeManager = new StakeManager(
-            maxUnstakeDelay,
-            abandonmentDelay,
-            escheatmentDelay,
-            stakeBurnAddress,
-            devAddress
+            cfg.maxUnstakeDelay,
+            cfg.abandonmentDelay,
+            cfg.escheatmentDelay,
+            cfg.stakeBurnAddress,
+            cfg.devAddress
         );
         console.log("StakeManager deployed at:", address(stakeManager));
 
         // 4. Deploy RelayRegistrar
-        RelayRegistrar relayRegistrar = new RelayRegistrar(registrationMaxAge);
+        RelayRegistrar relayRegistrar = new RelayRegistrar(
+            cfg.registrationMaxAge
+        );
         console.log("RelayRegistrar deployed at:", address(relayRegistrar));
 
         // 5. Deploy RelayHub
+        RelayHub relayHub = _deployRelayHub(
+            stakeManager,
+            penalizer,
+            relayRegistrar,
+            cfg.devAddress,
+            hp
+        );
+
+        // 6. Test Wrapped Native Token & Minimum Stakes
+        address testTokenAddr = _setupStakes(relayHub, cfg);
+
+        vm.stopBroadcast();
+
+        // ──────── Write deployed addresses to conf.json ────────
+        vm.writeJson(
+            vm.toString(address(forwarder)),
+            CONFIG_PATH,
+            ".deployedAddresses.forwarder"
+        );
+        vm.writeJson(
+            vm.toString(address(penalizer)),
+            CONFIG_PATH,
+            ".deployedAddresses.penalizer"
+        );
+        vm.writeJson(
+            vm.toString(address(stakeManager)),
+            CONFIG_PATH,
+            ".deployedAddresses.stakeManager"
+        );
+        vm.writeJson(
+            vm.toString(address(relayRegistrar)),
+            CONFIG_PATH,
+            ".deployedAddresses.relayRegistrar"
+        );
+        vm.writeJson(
+            vm.toString(address(relayHub)),
+            CONFIG_PATH,
+            ".deployedAddresses.relayHub"
+        );
+        if (testTokenAddr != address(0)) {
+            vm.writeJson(
+                vm.toString(testTokenAddr),
+                CONFIG_PATH,
+                ".deployedAddresses.testWrappedNativeToken"
+            );
+        }
+
+        // ──────── Summary ────────
+        console.log("\n=== GSN Deployment Summary ===");
+        console.log("Forwarder:       ", address(forwarder));
+        console.log("Penalizer:       ", address(penalizer));
+        console.log("StakeManager:    ", address(stakeManager));
+        console.log("RelayRegistrar:  ", address(relayRegistrar));
+        console.log("RelayHub:        ", address(relayHub));
+        if (testTokenAddr != address(0)) {
+            console.log("TestToken:       ", testTokenAddr);
+        }
+        console.log("Deployer:        ", deployer);
+        console.log("Dev Address:     ", cfg.devAddress);
+        console.log("Addresses saved to conf.json");
+    }
+
+    function _deployRelayHub(
+        StakeManager stakeManager,
+        Penalizer penalizer,
+        RelayRegistrar relayRegistrar,
+        address devAddress,
+        HubParams memory hp
+    ) internal returns (RelayHub) {
         IRelayHub.RelayHubConfig memory hubConfig = IRelayHub.RelayHubConfig({
-            maxWorkerCount: vm.envOr("MAX_WORKER_COUNT", uint256(10)),
-            gasReserve: vm.envOr("GAS_RESERVE", uint256(100_000)),
-            postOverhead: vm.envOr("POST_OVERHEAD", uint256(50_000)),
-            gasOverhead: vm.envOr("GAS_OVERHEAD", uint256(30_000)),
-            minimumUnstakeDelay: vm.envOr(
-                "MINIMUM_UNSTAKE_DELAY",
-                uint256(15_000)
-            ),
+            maxWorkerCount: hp.maxWorkerCount,
+            gasReserve: hp.gasReserve,
+            postOverhead: hp.postOverhead,
+            gasOverhead: hp.gasOverhead,
+            minimumUnstakeDelay: hp.minimumUnstakeDelay,
             devAddress: devAddress,
-            devFee: uint8(vm.envOr("DEV_FEE", uint256(0))),
-            baseRelayFee: uint80(vm.envOr("BASE_RELAY_FEE", uint256(0))),
-            pctRelayFee: uint16(vm.envOr("PCT_RELAY_FEE", uint256(0)))
+            devFee: uint8(hp.devFee),
+            baseRelayFee: uint80(hp.baseRelayFee),
+            pctRelayFee: uint16(hp.pctRelayFee)
         });
 
         RelayHub relayHub = new RelayHub(
@@ -141,63 +246,41 @@ contract DeployGSN is Script {
             hubConfig
         );
         console.log("RelayHub deployed at:", address(relayHub));
+        return relayHub;
+    }
 
-        console.log("RelayHub deployed at:", address(relayHub));
+    function _setupStakes(
+        RelayHub relayHub,
+        GSNConfig memory cfg
+    ) internal returns (address testTokenAddr) {
+        address stakeTokenAddr = cfg.minimumStakeTokenAddress;
 
-        // 6. Test Wrapped Native Token & Minimum Stakes
-        bool deployTestToken = vm.envOr("DEPLOY_TEST_TOKEN", false);
-        address minimumStakeTokenAddress = vm.envOr(
-            "MINIMUM_STAKE_TOKEN_ADDRESS",
-            address(0)
-        );
-        uint256 minimumStakeAmount = vm.envOr(
-            "MINIMUM_STAKE_AMOUNT",
-            uint256(1 ether)
-        );
-
-        address[] memory tokens = new address[](1);
-        IERC20[] memory tokensIERC20 = new IERC20[](1);
-        uint256[] memory stakes = new uint256[](1);
-
-        if (deployTestToken) {
+        if (cfg.deployTestToken) {
             TestWrappedNativeToken testToken = new TestWrappedNativeToken();
             console.log(
                 "TestWrappedNativeToken deployed at:",
                 address(testToken)
             );
-            minimumStakeTokenAddress = address(testToken);
+            stakeTokenAddr = address(testToken);
+            testTokenAddr = address(testToken);
         }
 
-        if (minimumStakeTokenAddress != address(0)) {
-            tokens[0] = minimumStakeTokenAddress;
-            tokensIERC20[0] = IERC20(minimumStakeTokenAddress);
-            stakes[0] = minimumStakeAmount;
+        if (stakeTokenAddr != address(0)) {
+            IERC20[] memory tokensIERC20 = new IERC20[](1);
+            uint256[] memory stakes = new uint256[](1);
+            tokensIERC20[0] = IERC20(stakeTokenAddr);
+            stakes[0] = cfg.minimumStakeAmount;
             relayHub.setMinimumStakes(tokensIERC20, stakes);
             console.log(
                 "Set minimum stake for token",
-                minimumStakeTokenAddress,
+                stakeTokenAddr,
                 "to",
-                minimumStakeAmount
+                cfg.minimumStakeAmount
             );
         } else {
             console.log(
                 "WARNING: No minimum stake set! RelayHub will not accept any registrations."
             );
         }
-
-        vm.stopBroadcast();
-
-        // ──────── Summary ────────
-        console.log("\n=== GSN Deployment Summary ===");
-        console.log("Forwarder:       ", address(forwarder));
-        console.log("Penalizer:       ", address(penalizer));
-        console.log("StakeManager:    ", address(stakeManager));
-        console.log("RelayRegistrar:  ", address(relayRegistrar));
-        console.log("RelayHub:        ", address(relayHub));
-        if (deployTestToken || minimumStakeTokenAddress != address(0)) {
-            console.log("Min Stake Token: ", minimumStakeTokenAddress);
-        }
-        console.log("Deployer:        ", deployer);
-        console.log("Dev Address:     ", devAddress);
     }
 }
