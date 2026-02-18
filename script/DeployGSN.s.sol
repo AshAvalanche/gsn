@@ -7,7 +7,11 @@ import "../packages/contracts/src/forwarder/Forwarder.sol";
 import "../packages/contracts/src/Penalizer.sol";
 import "../packages/contracts/src/StakeManager.sol";
 import "../packages/contracts/src/utils/RelayRegistrar.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../packages/contracts/src/RelayHub.sol";
+import "../packages/contracts/src/test/TestWrappedNativeToken.sol";
+
+// ... (skipping unchanged parts)
 
 /**
  * @title DeployGSN
@@ -138,6 +142,49 @@ contract DeployGSN is Script {
         );
         console.log("RelayHub deployed at:", address(relayHub));
 
+        console.log("RelayHub deployed at:", address(relayHub));
+
+        // 6. Test Wrapped Native Token & Minimum Stakes
+        bool deployTestToken = vm.envOr("DEPLOY_TEST_TOKEN", false);
+        address minimumStakeTokenAddress = vm.envOr(
+            "MINIMUM_STAKE_TOKEN_ADDRESS",
+            address(0)
+        );
+        uint256 minimumStakeAmount = vm.envOr(
+            "MINIMUM_STAKE_AMOUNT",
+            uint256(1 ether)
+        );
+
+        address[] memory tokens = new address[](1);
+        IERC20[] memory tokensIERC20 = new IERC20[](1);
+        uint256[] memory stakes = new uint256[](1);
+
+        if (deployTestToken) {
+            TestWrappedNativeToken testToken = new TestWrappedNativeToken();
+            console.log(
+                "TestWrappedNativeToken deployed at:",
+                address(testToken)
+            );
+            minimumStakeTokenAddress = address(testToken);
+        }
+
+        if (minimumStakeTokenAddress != address(0)) {
+            tokens[0] = minimumStakeTokenAddress;
+            tokensIERC20[0] = IERC20(minimumStakeTokenAddress);
+            stakes[0] = minimumStakeAmount;
+            relayHub.setMinimumStakes(tokensIERC20, stakes);
+            console.log(
+                "Set minimum stake for token",
+                minimumStakeTokenAddress,
+                "to",
+                minimumStakeAmount
+            );
+        } else {
+            console.log(
+                "WARNING: No minimum stake set! RelayHub will not accept any registrations."
+            );
+        }
+
         vm.stopBroadcast();
 
         // ──────── Summary ────────
@@ -147,6 +194,9 @@ contract DeployGSN is Script {
         console.log("StakeManager:    ", address(stakeManager));
         console.log("RelayRegistrar:  ", address(relayRegistrar));
         console.log("RelayHub:        ", address(relayHub));
+        if (deployTestToken || minimumStakeTokenAddress != address(0)) {
+            console.log("Min Stake Token: ", minimumStakeTokenAddress);
+        }
         console.log("Deployer:        ", deployer);
         console.log("Dev Address:     ", devAddress);
     }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import "forge-std/Script.sol";
 
 import "../packages/paymasters/contracts/SingletonWhitelistPaymaster.sol";
+import "../packages/contracts/src/test/TestPaymasterEverythingAccepted.sol";
 import "../packages/contracts/src/interfaces/IRelayHub.sol";
 
 /**
@@ -33,7 +34,7 @@ contract DeployPaymasters is Script {
 
         vm.startBroadcast();
 
-        // Deploy SingletonWhitelistPaymaster
+        // 1. Deploy SingletonWhitelistPaymaster
         SingletonWhitelistPaymaster paymaster = new SingletonWhitelistPaymaster();
         console.log(
             "SingletonWhitelistPaymaster deployed at:",
@@ -42,23 +43,55 @@ contract DeployPaymasters is Script {
 
         // Configure paymaster
         paymaster.setSharedConfiguration(gasUsedByPost, paymasterFee);
-        console.log(
-            "SharedConfiguration set: gasUsedByPost=%d, paymasterFee=%d",
-            gasUsedByPost,
-            paymasterFee
-        );
-
         paymaster.setRelayHub(IRelayHub(hubAddress));
-        console.log("RelayHub set to:", hubAddress);
-
         paymaster.setTrustedForwarder(forwarderAddress);
-        console.log("TrustedForwarder set to:", forwarderAddress);
+
+        console.log("SingletonWhitelistPaymaster configured");
+
+        // 2. Deploy TestPaymasterEverythingAccepted (Optional)
+        bool deployTestPaymaster = vm.envOr("DEPLOY_TEST_PAYMASTER", false);
+        TestPaymasterEverythingAccepted testPaymaster;
+
+        if (deployTestPaymaster) {
+            testPaymaster = new TestPaymasterEverythingAccepted();
+            console.log(
+                "TestPaymasterEverythingAccepted deployed at:",
+                address(testPaymaster)
+            );
+            testPaymaster.setRelayHub(IRelayHub(hubAddress));
+            testPaymaster.setTrustedForwarder(forwarderAddress);
+        }
+
+        // 3. Fund Paymasters
+        uint256 fundAmount = vm.envOr("FUND_PAYMASTER_AMOUNT", uint256(0));
+        if (fundAmount > 0) {
+            IRelayHub(hubAddress).depositFor{value: fundAmount}(
+                address(paymaster)
+            );
+            console.log("Funded SingletonWhitelistPaymaster with", fundAmount);
+
+            if (deployTestPaymaster) {
+                IRelayHub(hubAddress).depositFor{value: fundAmount}(
+                    address(testPaymaster)
+                );
+                console.log(
+                    "Funded TestPaymasterEverythingAccepted with",
+                    fundAmount
+                );
+            }
+        }
 
         vm.stopBroadcast();
 
         // Summary
         console.log("\n=== Paymaster Deployment Summary ===");
         console.log("SingletonWhitelistPaymaster:", address(paymaster));
+        if (deployTestPaymaster) {
+            console.log(
+                "TestPaymasterEverythingAccepted:",
+                address(testPaymaster)
+            );
+        }
         console.log("RelayHub:                   ", hubAddress);
         console.log("Forwarder:                  ", forwarderAddress);
     }
