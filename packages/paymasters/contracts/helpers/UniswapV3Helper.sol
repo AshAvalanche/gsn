@@ -1,6 +1,5 @@
 // SPDX-License-Identifier:MIT
-pragma solidity ^0.8.7;
-pragma experimental ABIEncoderV2;
+pragma solidity ^0.8.25;
 
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IPeripheryPayments.sol";

@@ -1,0 +1,22 @@
+[profile.default]
+src = "packages/contracts/src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+
+solc_version = "0.8.25"
+
+optimizer = true
+optimizer_runs = 200
+
+# Include paymasters contracts as additional sources
+fs_permissions = [{ access = "read", path = "./" }]
+extra_output = ["abi", "evm.bytecode"]
+
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@opengsn/contracts/src/=packages/contracts/src/",
+    "@uniswap/v3-periphery/=lib/v3-periphery/",
+    "forge-std/=lib/forge-std/src/",
+]

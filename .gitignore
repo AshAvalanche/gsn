@@ -51,3 +51,7 @@ hardhat.log
 /Project.xml
 /packages/dev/types/truffle-contracts/
 
+# Foundry
+/out/
+/cache_forge/
+/lib/

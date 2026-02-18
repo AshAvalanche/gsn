@@ -4,12 +4,10 @@
 /* solhint-disable avoid-tx-origin */
 /* solhint-disable bracket-align */
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.25;
 pragma abicoder v2;
 
-// #if ENABLE_CONSOLE_LOG
-import "hardhat/console.sol";
-// #endif
+import "forge-std/console.sol";
 
 import "./utils/MinLibBytes.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
