@@ -7,7 +7,7 @@
     "tsc": "tsc",
     "solidity-docgen": "rm -rf docs && solidity-docgen --solc-module solc-0.8 --input=src --exclude=src/test,src/forwarder/test --templates=.",
     "typechain-generate": "yarn typechain-generate-ethers-v5",
-    "typechain-generate-ethers-v5": "typechain --target ethers-v5 '../../out/*/*.json'",
+    "typechain-generate-ethers-v5": "typechain --target ethers-v5 '../../out/*.sol/*.json'",
     "lint": "solhint -f unix \"src/**/*.sol\" --max-warnings 0",
     "rm-dist": "rm -rf types/truffle-contracts solpp"
   },

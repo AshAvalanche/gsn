@@ -10,7 +10,7 @@
     "test": "yarn tsc",
     "typechain-generate": "yarn typechain-generate-ethers-v5",
     "typechain-generate-truffle": "echo 'Skipping truffle typechain'",
-    "typechain-generate-ethers-v5": "typechain --target ethers-v5 '../../out/*/*.json'",
+    "typechain-generate-ethers-v5": "typechain --target ethers-v5 '../../out/*.sol/*.json'",
     "rm-dist": "rm -rf tsconfig.tsbuildinfo dist build"
   },
   "main": "dist/src/index.js",

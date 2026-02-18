@@ -22,7 +22,7 @@
     "outDir": "dist",
     "lib": [
       "dom",
-      "es2015",
+      "es2019",
       "esnext.asynciterable"
     ],
     "sourceMap": true,

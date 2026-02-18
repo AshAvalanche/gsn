@@ -1,3 +1,4 @@
+
 import { type JsonRpcProvider, type ExternalProvider } from '@ethersproject/providers'
 
 import {
@@ -37,7 +38,7 @@ export class TokenPaymasterInteractor {
   paymaster!: PermitERC20UniswapV3Paymaster
   token!: IERC20
 
-  constructor (
+  constructor(
     provider: JsonRpcProvider | ExternalProvider,
     paymasterAddress: Address,
     logger: LoggerInterface
@@ -47,53 +48,53 @@ export class TokenPaymasterInteractor {
     this.provider = provider as any
   }
 
-  async init (): Promise<this> {
+  async init(): Promise<this> {
     this.provider = (await wrapInputProviderLike(this.provider)).provider
     this.paymaster = await this._createPermitERC20UniswapV3Paymaster(this.paymasterAddress)
     return this
   }
 
-  async setToken (tokenAddress: Address): Promise<void> {
+  async setToken(tokenAddress: Address): Promise<void> {
     this.tokenAddress = tokenAddress
     this.token = await this._createIERC20Instance(this.tokenAddress)
     this.tokenSwapData = await this.paymaster.getTokenSwapData(tokenAddress)
   }
 
-  async _createIERC20Instance (address: Address): Promise<IERC20> {
+  async _createIERC20Instance(address: Address): Promise<IERC20> {
     return IERC20__factory.connect(address, this.provider)
   }
 
-  async _createPermitERC20UniswapV3Paymaster (address: Address): Promise<PermitERC20UniswapV3Paymaster> {
+  async _createPermitERC20UniswapV3Paymaster(address: Address): Promise<PermitERC20UniswapV3Paymaster> {
     return PermitERC20UniswapV3Paymaster__factory.connect(address, this.provider)
   }
 
-  async _createChainlinkOracleInstance (address: Address): Promise<IChainlinkOracle> {
+  async _createChainlinkOracleInstance(address: Address): Promise<IChainlinkOracle> {
     return IChainlinkOracle__factory.connect(address, this.provider)
   }
 
-  async getAllowance (owner: Address, spender: Address): Promise<BigNumber> {
+  async getAllowance(owner: Address, spender: Address): Promise<BigNumber> {
     return await this.token.allowance(owner, spender)
   }
 
-  async supportedTokens (): Promise<Address[]> {
+  async supportedTokens(): Promise<Address[]> {
     return await this.paymaster.getTokens()
   }
 
-  async isTokenSupported (token: Address): Promise<boolean> {
+  async isTokenSupported(token: Address): Promise<boolean> {
     return await this.paymaster.isTokenSupported(token)
   }
 
-  async tokenBalanceOf (owner: Address, tokenAddress: Address): Promise<BigNumber> {
+  async tokenBalanceOf(owner: Address, tokenAddress: Address): Promise<BigNumber> {
     const tokenInstance = await this._createIERC20Instance(tokenAddress)
     return await tokenInstance.balanceOf(owner)
   }
 
-  async tokenPaymasterAllowance (owner: Address, tokenAddress: Address): Promise<BigNumber> {
+  async tokenPaymasterAllowance(owner: Address, tokenAddress: Address): Promise<BigNumber> {
     const tokenInstance = await this._createIERC20Instance(tokenAddress)
     return await tokenInstance.allowance(owner, this.paymaster.address)
   }
 
-  async tokenToWei (tokenAddress: Address, tokenAmount: BigNumber): Promise<{
+  async tokenToWei(tokenAddress: Address, tokenAmount: BigNumber): Promise<{
     actualQuote: BigNumber
     amountInWei: BigNumber
   }> {
@@ -125,3 +126,4 @@ export class TokenPaymasterInteractor {
     }
   }
 }
+

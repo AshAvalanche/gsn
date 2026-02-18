@@ -2,9 +2,14 @@ import { keccak256, toBN } from 'web3-utils'
 import { type RelayRequest } from '@opengsn/common'
 import abi from 'web3-eth-abi'
 
+// import IForwarder from '@opengsn/common/dist/interfaces/IForwarder.json'
+// Using extracted interface
 import IForwarder from '@opengsn/common/dist/interfaces/IForwarder.json'
 
-import HashcashDifficulty from '../build/contracts/HashcashPaymaster.json'
+import HashcashDifficulty from './interfaces/HashcashPaymaster.json'
+
+// Fix Web3 type error by importing it differently or using explicit type
+import Web3 from 'web3'
 
 /**
  * low-level hashcash calculation for the given address and nonce
@@ -16,7 +21,7 @@ import HashcashDifficulty from '../build/contracts/HashcashPaymaster.json'
  * @param callback async callback to call. return "false" to abort. true to continue
  * @return the approvalData value (bytes32 hash, uint256 counter)
  */
-export async function calculateHashcash (senderAddress: string, senderNonce: string, difficulty: any, interval?: number, callback?: any): Promise<string> {
+export async function calculateHashcash(senderAddress: string, senderNonce: string, difficulty: any, interval?: number, callback?: any): Promise<string> {
   const diffMax = toBN(1).shln(256 - difficulty)
   let hashNonce = 0
   let intervalCount = 0
@@ -55,7 +60,7 @@ export async function calculateHashcash (senderAddress: string, senderNonce: str
  * @returns - an async function to pass as a parameter for "asyncApprovalData" of the
  *  RelayProvider. see the HashcashPaymaster.test.ts for usage example.
  */
-export function createHashcashAsyncApproval (difficulty: any, interval?: number, callback?: any): (relayRequest: RelayRequest) => Promise<string> {
+export function createHashcashAsyncApproval(difficulty: any, interval?: number, callback?: any): (relayRequest: RelayRequest) => Promise<string> {
   return async function (relayRequest: RelayRequest): Promise<string> {
     console.log('=== calculating approval')
     const { from: senderAddress, nonce: senderNonce } = relayRequest.request
@@ -67,7 +72,7 @@ export function createHashcashAsyncApproval (difficulty: any, interval?: number,
 
 // helper: call the "call()" method, and throw the given string in case of error
 // (most likely - object doens't support this method..)
-function checkedCall (method: any, str: string): any {
+function checkedCall(method: any, str: string): any {
   try {
     return method.call()
   } catch (e) {
@@ -87,9 +92,9 @@ function checkedCall (method: any, str: string): any {
  * @param interval
  * @param callback
  */
-export async function calculateHashcashApproval (web3: Web3, senderAddr: string, recipientAddr: string, forwarderAddress: string, hashcashPaymasterAddr?: string, interval?: number, callback?: any): Promise<string | null> {
+export async function calculateHashcashApproval(web3: Web3, senderAddr: string, recipientAddr: string, forwarderAddress: string, hashcashPaymasterAddr?: string, interval?: number, callback?: any): Promise<string | null> {
   // @ts-ignore
-  const paymaster = new web3.eth.Contract(HashcashDifficulty.abi, hashcashPaymasterAddr).methods
+  const paymaster = new web3.eth.Contract(HashcashDifficulty, hashcashPaymasterAddr).methods
   const difficulty = await checkedCall(paymaster.difficulty(), hashcashPaymasterAddr ?? 'undefined' + ': not A HashcashPaymaster')
   // @ts-ignore
   const forwarder = new web3.eth.Contract(IForwarder, forwarderAddress).methods

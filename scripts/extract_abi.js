@@ -19,6 +19,19 @@ if (process.argv.length >= 2 && process.argv[2] === 'paymasters') {
   contractsFolderToExtract = 'packages/paymasters/contracts/interfaces'
   files = fs.readdirSync(contractsFolderToExtract)
   files.push('PermitERC20UniswapV3Paymaster.sol')
+  files.push('HashcashPaymaster.sol')
+} else if (process.argv.length >= 2 && process.argv[2] === 'cli') {
+  outAbiFolder = 'packages/cli/src/compiled/'
+  // CLI needs specific contracts for deployment
+  files = [
+    'StakeManager.sol',
+    'RelayHub.sol',
+    'RelayRegistrar.sol',
+    'Penalizer.sol',
+    'TestPaymasterEverythingAccepted.sol',
+    'Forwarder.sol',
+    'TestWrappedNativeToken.sol'
+  ]
 } else {
   outAbiFolder = 'packages/common/src/interfaces/'
   contractsFolderToExtract = 'packages/contracts/src/interfaces'
@@ -31,10 +44,6 @@ console.log(`Extracting ABIs from ${FOUNDRY_OUT} to ${outAbiFolder}...`)
 files.forEach(file => {
   const c = file.replace(/.sol/, '')
   const contractFileName = file
-  
-  // Foundry output structure: out/ContractFile.sol/ContractName.json
-  // We assume ContractName matches file name without extension, or we try to find it.
-  // For IForwarder.sol, contract is IForwarder.
   
   // Construct path to artifact
   const artifactPath = path.join(FOUNDRY_OUT, contractFileName, `${c}.json`)
@@ -53,7 +62,21 @@ files.forEach(file => {
       }
       
       fs.mkdirSync(path.dirname(outNodeFile), { recursive: true })
-      fs.writeFileSync(outNodeFile, JSON.stringify(artifact.abi))
+      
+      let outputContent;
+      if (process.argv[2] === 'cli') {
+        // CLI needs bytecode for deployment
+        outputContent = JSON.stringify({
+          abi: artifact.abi,
+          bytecode: artifact.bytecode.object,
+          contractName: c
+        }, null, 2)
+      } else {
+        // Interfaces only need ABI
+        outputContent = JSON.stringify(artifact.abi)
+      }
+
+      fs.writeFileSync(outNodeFile, outputContent)
       console.log(`written "${outNodeFile}"`)
   } catch (e) {
       console.error(`Error processing ${file}: ${e.message}`)

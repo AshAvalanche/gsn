@@ -21,11 +21,15 @@ import "./helpers/UniswapV3Helper.sol";
  * to pay for a GSN transaction.
  */
 contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
-
     using SafeERC20 for IERC20;
 
     event Received(address indexed sender, uint256 eth);
-    event TokensCharged(uint256 gasUseWithoutPost, uint256 gasJustPost, uint256 tokenActualCharge, uint256 ethActualCharge);
+    event TokensCharged(
+        uint256 gasUseWithoutPost,
+        uint256 gasJustPost,
+        uint256 tokenActualCharge,
+        uint256 ethActualCharge
+    );
 
     struct TokenSwapData {
         IChainlinkOracle priceFeed;
@@ -66,10 +70,10 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
 
     struct GasAndEthConfig {
         /**
-        * set gas used by postRelayedCall, for proper gas calculation.
-        * You can use TokenGasCalculator to calculate these values (they depend on actual code of postRelayedCall,
-        * but also the gas usage of the token and of Uniswap)
-        */
+         * set gas used by postRelayedCall, for proper gas calculation.
+         * You can use TokenGasCalculator to calculate these values (they depend on actual code of postRelayedCall,
+         * but also the gas usage of the token and of Uniswap)
+         */
         uint256 gasUsedByPost;
         // Upon reaching minHubBalance, the paymaster will deposit eth to RelayHub to reach targetHubBalance
         uint256 minHubBalance;
@@ -96,10 +100,19 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         weth = config.weth;
         uniswap = config.uniswap;
         minSwapAmount = config.minSwapAmount;
-        setTokens(config.tokens, config.priceFeeds, config.permitMethodSignatures, config.uniswapPoolFees, config.reverseQuotes, config.slippages);
+        setTokens(
+            config.tokens,
+            config.priceFeeds,
+            config.permitMethodSignatures,
+            config.uniswapPoolFees,
+            config.reverseQuotes,
+            config.slippages
+        );
     }
 
-    function setGasAndEthConfig(GasAndEthConfig memory config) public onlyOwner {
+    function setGasAndEthConfig(
+        GasAndEthConfig memory config
+    ) public onlyOwner {
         minWithdrawalAmount = config.minWithdrawalAmount;
         gasUsedByPost = config.gasUsedByPost;
         targetHubBalance = config.targetHubBalance;
@@ -113,7 +126,8 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         string[] memory _permitMethodSignatures,
         uint24[] memory _poolFees,
         bool[] memory _reverseQuote,
-        uint8[] memory _slippages) private {
+        uint8[] memory _slippages
+    ) private {
         tokens = _tokens;
         uint256 blockNumber = block.number;
         tokensBlockNumber = blockNumber;
@@ -122,10 +136,17 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
             TokenSwapData memory data;
             IERC20 token = tokens[i];
             token.approve(address(uniswap), type(uint256).max);
-            data.priceDivisor = 10 ** uint256(_priceFeeds[i].decimals() + IERC20Metadata(address(token)).decimals());
+            data.priceDivisor =
+                10 **
+                    uint256(
+                        _priceFeeds[i].decimals() +
+                            IERC20Metadata(address(token)).decimals()
+                    );
             data.priceFeed = _priceFeeds[i];
             data.reverseQuote = _reverseQuote[i];
-            data.permitMethodSelector = bytes4(keccak256(bytes(_permitMethodSignatures[i])));
+            data.permitMethodSelector = bytes4(
+                keccak256(bytes(_permitMethodSignatures[i]))
+            );
             data.uniswapPoolFee = _poolFees[i];
             require(_slippages[i] <= 1000, "slippage above 100%");
             data.slippage = _slippages[i];
@@ -134,11 +155,13 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         }
     }
 
-    function getTokens() public view returns (IERC20[] memory){
+    function getTokens() public view returns (IERC20[] memory) {
         return tokens;
     }
 
-    function getTokenSwapData(IERC20 token) public view returns (TokenSwapData memory) {
+    function getTokenSwapData(
+        IERC20 token
+    ) public view returns (TokenSwapData memory) {
         return tokensSwapData[token];
     }
 
@@ -146,7 +169,11 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         _refillHubDeposit(amount);
     }
 
-    function withdrawTokens(IERC20[] calldata _tokens, address target, uint256[] calldata amounts) public onlyOwner {
+    function withdrawTokens(
+        IERC20[] calldata _tokens,
+        address target,
+        uint256[] calldata amounts
+    ) public onlyOwner {
         for (uint256 i = 0; i < _tokens.length; i++) {
             _tokens[i].safeTransfer(target, amounts[i]);
         }
@@ -157,35 +184,48 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         uint256 gasUsed,
         uint256 priceQuote,
         bool reverseQuote
-    ) internal
-    view
-    returns (uint256 tokenCharge, uint256 ethCharge) {
+    ) internal view returns (uint256 tokenCharge, uint256 ethCharge) {
         ethCharge = relayHub.calculateCharge(gasUsed, relayData);
-        tokenCharge = addPaymasterFee(weiToToken(ethCharge, priceQuote, reverseQuote));
+        tokenCharge = addPaymasterFee(
+            weiToToken(ethCharge, priceQuote, reverseQuote)
+        );
     }
 
-    function toActualQuote(uint256 quote, uint256 divisor) public pure returns (uint256) {
+    function toActualQuote(
+        uint256 quote,
+        uint256 divisor
+    ) public pure returns (uint256) {
         // converting oracle token-to-eth answer, to token to wei (*1e18), packing divisor (/divisor) to it
         // multiplying by 1e36 to avoid loss of precision by dividing by divisor
-        return 1e36 * 1e18 * quote / divisor;
+        return (1e36 * 1e18 * quote) / divisor;
     }
 
-    function tokenToWei(uint256 amount, uint256 quote, bool reverse) public pure returns (uint256) {
-        if (reverse){
+    function tokenToWei(
+        uint256 amount,
+        uint256 quote,
+        bool reverse
+    ) public pure returns (uint256) {
+        if (reverse) {
             return weiToToken(amount, quote, false);
         }
-        return amount * quote / 1e36;
+        return (amount * quote) / 1e36;
     }
 
-    function weiToToken(uint256 amount, uint256 quote, bool reverse) public pure returns (uint256) {
-        if (reverse){
+    function weiToToken(
+        uint256 amount,
+        uint256 quote,
+        bool reverse
+    ) public pure returns (uint256) {
+        if (reverse) {
             return tokenToWei(amount, quote, false);
         }
-        return amount * 1e36 / quote;
+        return (amount * 1e36) / quote;
     }
 
     // solhint-disable-next-line no-empty-blocks
-    function _verifyPaymasterData(GsnTypes.RelayRequest calldata relayRequest) internal virtual override view {}
+    function _verifyPaymasterData(
+        GsnTypes.RelayRequest calldata relayRequest
+    ) internal view virtual override {}
 
     function isTokenSupported(IERC20 token) public view returns (bool) {
         return tokensSwapData[token].validFromBlockNumber == tokensBlockNumber;
@@ -196,36 +236,62 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         bytes calldata signature,
         bytes calldata approvalData,
         uint256 maxPossibleGas
-    )
-    internal
-    override
-    returns (bytes memory, bool) {
+    ) internal override returns (bytes memory, bool) {
         (signature, approvalData);
         bytes calldata paymasterData = relayRequest.relayData.paymasterData;
         // paymasterData must contain the token address, and optionally a a valid "permit" call on the token.
         require(paymasterData.length >= 20, "must contain token address");
         IERC20 token = _getTokenFromPaymasterData(paymasterData);
-        require(isTokenSupported(token),"unsupported token");
+        require(isTokenSupported(token), "unsupported token");
         TokenSwapData memory tokenSwapData = tokensSwapData[token];
         if (paymasterData.length != 20) {
-            require(paymasterData.length >= 24, "must contain \"permit\" and token");
             require(
-                tokenSwapData.permitMethodSelector == GsnUtils.getMethodSig(paymasterData[20:]),
-                "wrong \"permit\" method sig");
+                paymasterData.length >= 24,
+                'must contain "permit" and token'
+            );
+            require(
+                tokenSwapData.permitMethodSelector ==
+                    GsnUtils.getMethodSig(paymasterData[20:]),
+                'wrong "permit" method sig'
+            );
             // execute permit method for this token
             {
                 // solhint-disable-next-line avoid-low-level-calls
-                (bool success, bytes memory ret) = address(token).call(paymasterData[20:]);
-                require(success, string(abi.encodePacked("permit call reverted:", string(ret))));
+                (bool success, bytes memory ret) = address(token).call(
+                    paymasterData[20:]
+                );
+                require(
+                    success,
+                    string(
+                        abi.encodePacked("permit call reverted:", string(ret))
+                    )
+                );
             }
         }
 
-        uint256 priceQuote = toActualQuote(uint256(tokenSwapData.priceFeed.latestAnswer()),tokenSwapData.priceDivisor);
+        uint256 priceQuote = toActualQuote(
+            uint256(tokenSwapData.priceFeed.latestAnswer()),
+            tokenSwapData.priceDivisor
+        );
 
-        (uint256 tokenPreCharge,) = _calculateCharge(relayRequest.relayData, maxPossibleGas, priceQuote, tokenSwapData.reverseQuote);
+        (uint256 tokenPreCharge, ) = _calculateCharge(
+            relayRequest.relayData,
+            maxPossibleGas,
+            priceQuote,
+            tokenSwapData.reverseQuote
+        );
         address payer = relayRequest.request.from;
         token.safeTransferFrom(payer, address(this), tokenPreCharge);
-        return (abi.encode(token, payer, priceQuote, tokenPreCharge, tokenSwapData.reverseQuote), false);
+        return (
+            abi.encode(
+                token,
+                payer,
+                priceQuote,
+                tokenPreCharge,
+                tokenSwapData.reverseQuote
+            ),
+            false
+        );
     }
 
     function _postRelayedCall(
@@ -233,16 +299,29 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         bool,
         uint256 gasUseWithoutPost,
         GsnTypes.RelayData calldata relayData
-    )
-    internal
-    override
-    {
-        (IERC20 token, address payer, uint256 priceQuote, uint256 tokenPreCharge, bool reverseQuote) = abi.decode(context, (IERC20, address, uint256, uint256, bool));
-        (uint256 tokenActualCharge, uint256 ethActualCharge) = _calculateCharge(relayData, gasUseWithoutPost + gasUsedByPost, priceQuote, reverseQuote);
+    ) internal override {
+        (
+            IERC20 token,
+            address payer,
+            uint256 priceQuote,
+            uint256 tokenPreCharge,
+            bool reverseQuote
+        ) = abi.decode(context, (IERC20, address, uint256, uint256, bool));
+        (uint256 tokenActualCharge, uint256 ethActualCharge) = _calculateCharge(
+            relayData,
+            gasUseWithoutPost + gasUsedByPost,
+            priceQuote,
+            reverseQuote
+        );
         require(tokenActualCharge <= tokenPreCharge, "actual charge higher");
         token.safeTransfer(payer, tokenPreCharge - tokenActualCharge);
 
-        emit TokensCharged(gasUseWithoutPost, gasUsedByPost, tokenActualCharge, ethActualCharge);
+        emit TokensCharged(
+            gasUseWithoutPost,
+            gasUsedByPost,
+            tokenActualCharge,
+            ethActualCharge
+        );
         _refillHubDepositIfNeeded(ethActualCharge);
         _withdrawToOwnerIfNeeded();
     }
@@ -260,7 +339,11 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         uint256 balance = address(this).balance;
         uint256 amountSwapped = 0;
         if (balance < depositAmount) {
-            for (uint256 i = 0; i < tokens.length && balance + amountSwapped < depositAmount; i++) {
+            for (
+                uint256 i = 0;
+                i < tokens.length && balance + amountSwapped < depositAmount;
+                i++
+            ) {
                 amountSwapped += _maybeSwapTokenToWeth(tokens[i]);
             }
             if (amountSwapped > 0) {
@@ -268,7 +351,7 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
             }
         }
         if (balance + amountSwapped > 0) {
-            relayHub.depositFor{value : balance + amountSwapped}(address(this));
+            relayHub.depositFor{value: balance + amountSwapped}(address(this));
         }
     }
 
@@ -276,19 +359,26 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         uint256 tokenBalance = tokenIn.balanceOf(address(this));
         if (tokenBalance > 0) {
             TokenSwapData memory tokenSwapData = tokensSwapData[tokenIn];
-            uint256 quote = toActualQuote(uint256(tokenSwapData.priceFeed.latestAnswer()), tokenSwapData.priceDivisor);
-            uint256 amountOutMin = addSlippage(tokenToWei(tokenBalance, quote, tokenSwapData.reverseQuote), tokenSwapData.slippage);
+            uint256 quote = toActualQuote(
+                uint256(tokenSwapData.priceFeed.latestAnswer()),
+                tokenSwapData.priceDivisor
+            );
+            uint256 amountOutMin = addSlippage(
+                tokenToWei(tokenBalance, quote, tokenSwapData.reverseQuote),
+                tokenSwapData.slippage
+            );
             if (amountOutMin < minSwapAmount) {
                 return 0;
             }
-            return UniswapV3Helper.swapToToken(
-                address(tokenIn),
-                address(weth),
-                tokenBalance,
-                amountOutMin,
-                tokenSwapData.uniswapPoolFee,
-                uniswap
-            );
+            return
+                UniswapV3Helper.swapToToken(
+                    address(tokenIn),
+                    address(weth),
+                    tokenBalance,
+                    amountOutMin,
+                    tokenSwapData.uniswapPoolFee,
+                    uniswap
+                );
         }
         return 0;
     }
@@ -296,47 +386,67 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
     function _withdrawToOwnerIfNeeded() private {
         uint256 hubBalance = relayHub.balanceOf(address(this));
         if (hubBalance >= minWithdrawalAmount + targetHubBalance) {
-        relayHub.withdraw(payable(owner()), hubBalance - targetHubBalance);
+            relayHub.withdraw(payable(owner()), hubBalance - targetHubBalance);
         }
     }
 
-    function _getTokenFromPaymasterData(bytes calldata paymasterData) internal pure returns (IERC20) {
+    function _getTokenFromPaymasterData(
+        bytes calldata paymasterData
+    ) internal pure returns (IERC20) {
         return IERC20(address(bytes20(paymasterData[:20])));
     }
 
     function addPaymasterFee(uint256 charge) public view returns (uint256) {
-        return charge * (100 + paymasterFee) / 100;
+        return (charge * (100 + paymasterFee)) / 100;
     }
 
-    function addSlippage(uint256 amount, uint8 slippage) public pure returns (uint256) {
-        return amount * (1000 - slippage) / 1000;
+    function addSlippage(
+        uint256 amount,
+        uint8 slippage
+    ) public pure returns (uint256) {
+        return (amount * (1000 - slippage)) / 1000;
     }
 
     // as this Paymaster already has a permission from a user to operate the tokens on behalf of the gasless account,
     // it makes this same Paymaster a great recipient of a transaction if its only action is a pure token transfer
-    function transferToken(IERC20 token, address target, uint256 value) external {
+    function transferToken(
+        IERC20 token,
+        address target,
+        uint256 value
+    ) external {
         require(msg.sender == getTrustedForwarder(), "must be a meta-tx");
         token.safeTransferFrom(_msgSender(), target, value);
     }
 
-    receive() external override payable {
+    receive() external payable override {
         emit Received(msg.sender, msg.value);
     }
 
-    function getGasAndDataLimits() public override pure returns (IPaymaster.GasAndDataLimits memory limits) {
-        return IPaymaster.GasAndDataLimits(
-            2e5,
-            2e5,
-            4e5,
-            CALLDATA_SIZE_LIMIT
-        );
+    function getGasAndDataLimits()
+        public
+        pure
+        override
+        returns (IPaymaster.GasAndDataLimits memory limits)
+    {
+        return IPaymaster.GasAndDataLimits(2e5, 2e5, 4e5, CALLDATA_SIZE_LIMIT);
     }
 
-    function versionPaymaster() external override virtual view returns (string memory){
+    function versionPaymaster()
+        external
+        view
+        virtual
+        override
+        returns (string memory)
+    {
         return "3.0.0-beta.3+opengsn.permit-erc20-uniswap-v3.ipaymaster";
     }
 
-    function getTrustedForwarder() override(BasePaymaster, ERC2771Recipient) public view returns (address forwarder){
+    function getTrustedForwarder()
+        public
+        view
+        override(BasePaymaster, ERC2771Recipient)
+        returns (address forwarder)
+    {
         forwarder = ERC2771Recipient.getTrustedForwarder();
     }
 
@@ -344,11 +454,21 @@ contract PermitERC20UniswapV3Paymaster is BasePaymaster, ERC2771Recipient {
         _setTrustedForwarder(_forwarder);
     }
 
-    function _msgSender() internal view override(Context, ERC2771Recipient) returns (address sender) {
+    function _msgSender()
+        internal
+        view
+        override(Context, ERC2771Recipient)
+        returns (address sender)
+    {
         sender = ERC2771Recipient._msgSender();
     }
 
-    function _msgData() internal view override(Context, ERC2771Recipient) returns (bytes memory) {
+    function _msgData()
+        internal
+        view
+        override(Context, ERC2771Recipient)
+        returns (bytes calldata)
+    {
         return ERC2771Recipient._msgData();
     }
 }
