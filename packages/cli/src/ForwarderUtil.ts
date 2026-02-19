@@ -1,36 +1,42 @@
-import { Contract, type CallOverrides } from '@ethersproject/contracts'
-import { Web3Provider } from '@ethersproject/providers'
-
+import { type WalletClient, type PublicClient, type Address, type Hex } from 'viem'
 import { GsnDomainSeparatorType, GsnRequestType, type LoggerInterface } from '@opengsn/common'
-import { type IForwarder } from '@opengsn/contracts/types/ethers-contracts'
 
-interface TruffleContract {
-  contract: any
-}
-
-// register a forwarder for use with GSN: the request-type and domain separator we're using.
-export async function registerForwarderForGsn (
+export async function registerForwarderForGsn(
   domainSeparatorName: string,
-  forwarderIn: IForwarder | Contract | TruffleContract,
+  forwarderAddress: Address,
+  forwarderAbi: any[],
+  walletClient: WalletClient,
+  publicClient: PublicClient,
   logger?: LoggerInterface,
-  sendOptions: CallOverrides | undefined = undefined
+  from?: Address
 ): Promise<void> {
-  let forwarder: Contract
-  if ((forwarderIn as TruffleContract).contract != null) {
-    const provider = new Web3Provider((forwarderIn as any).contract.currentProvider)
-    forwarder = new Contract((forwarderIn as any).address, (forwarderIn as any).abi, provider.getSigner())
-  } else {
-    forwarder = forwarderIn as any
+  const account = from ?? walletClient.account?.address
+  if (!account) {
+    throw new Error('registerForwarderForGsn: No account provided or found in walletClient')
   }
 
   logger?.info(`Registering request type ${GsnRequestType.typeName} with suffix: ${GsnRequestType.typeSuffix}`)
-  const res = await forwarder.registerRequestType(
-    GsnRequestType.typeName,
-    GsnRequestType.typeSuffix,
-    { ...sendOptions }
-  )
-  logger?.debug(`Transaction broadcast: ${res?.hash as string}`)
+  const hash1 = await walletClient.writeContract({
+    address: forwarderAddress,
+    abi: forwarderAbi,
+    functionName: 'registerRequestType',
+    args: [GsnRequestType.typeName, GsnRequestType.typeSuffix],
+    account,
+    chain: null
+  } as any)
+  logger?.debug(`Transaction broadcast: ${hash1}`)
+  await publicClient.waitForTransactionReceipt({ hash: hash1 })
 
   logger?.info(`Registering domain separator ${domainSeparatorName} with version: ${GsnDomainSeparatorType.version}`)
-  await forwarder.registerDomainSeparator(domainSeparatorName, GsnDomainSeparatorType.version, { ...sendOptions })
+  const hash2 = await walletClient.writeContract({
+    address: forwarderAddress,
+    abi: forwarderAbi,
+    functionName: 'registerDomainSeparator',
+    args: [domainSeparatorName, GsnDomainSeparatorType.version],
+    account,
+    chain: null
+  } as any)
+  logger?.debug(`Transaction broadcast: ${hash2}`)
+  await publicClient.waitForTransactionReceipt({ hash: hash2 })
 }
+

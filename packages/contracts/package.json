@@ -2,12 +2,13 @@
   "name": "@opengsn/contracts",
   "license": "GPL-3.0-only",
   "version": "3.0.0-beta.10",
-  "main": "dist/types/ethers-contracts/index.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "tsc": "tsc",
     "solidity-docgen": "rm -rf docs && solidity-docgen --solc-module solc-0.8 --input=src --exclude=src/test,src/forwarder/test --templates=.",
-    "typechain-generate": "yarn typechain-generate-ethers-v5",
-    "typechain-generate-ethers-v5": "typechain --target ethers-v5 '../../out/*.sol/*.json'",
+    "typechain-generate": "yarn generate-types",
+    "generate-types": "wagmi generate",
     "lint": "solhint -f unix \"src/**/*.sol\" --max-warnings 0",
     "rm-dist": "rm -rf types/truffle-contracts solpp"
   },
@@ -21,12 +22,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@ethersproject/abi": "^5.7.0",
-    "@ethersproject/providers": "^5.7.2",
     "@openzeppelin/contracts": "^4.2.0",
-    "ethers": "^5.7.2"
+    "viem": "^2.0.0"
   },
   "devDependencies": {
+    "@wagmi/cli": "^2.0.0",
     "solc-0.8": "npm:solc@0.8.11",
     "solhint": "^3.3.2",
     "solidity-docgen": "^0.5.16",

@@ -1,10 +1,10 @@
-import { BigNumber } from '@ethersproject/bignumber'
+import { parseGwei, type Address } from 'viem'
+import { formatEther } from 'viem'
 
 import { ether } from '@opengsn/common'
 
 import { CommandsLogic, type RegisterOptions } from '../CommandsLogic'
 import { getNetworkUrl, gsnCommander, getMnemonic } from '../utils'
-import { toWei } from 'web3-utils'
 import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger'
 
 const commander = gsnCommander(['n', 'f', 'm', 'g'])
@@ -40,12 +40,12 @@ const commander = gsnCommander(['n', 'f', 'm', 'g'])
   const registerOptions: RegisterOptions = {
     sleepMs: parseInt(commander.sleep),
     sleepCount: parseInt(commander.sleepCount),
-    from: commander.from ?? await logic.findWealthyAccount(),
-    token: commander.token,
+    from: commander.from as Address ?? await logic.findWealthyAccount() as Address,
+    token: commander.token as Address,
     stake: commander.stake,
     wrap: commander.wrap,
     funds: ether(commander.funds),
-    gasPrice: commander.gasPrice != null ? BigNumber.from(toWei(commander.gasPrice, 'gwei')) : undefined,
+    gasPrice: commander.gasPrice != null ? parseGwei(commander.gasPrice) : undefined,
     relayUrl: commander.relayUrl,
     unstakeDelay: commander.unstakeDelay
   }
@@ -68,3 +68,6 @@ const commander = gsnCommander(['n', 'f', 'm', 'g'])
     process.exit(1)
   }
 )
+
+// suppress unused import warning
+void formatEther

@@ -1,10 +1,9 @@
-import { BigNumber } from '@ethersproject/bignumber'
+import { formatEther, parseGwei, type Address } from 'viem'
 
 import { CommandsLogic, type WithdrawOptions } from '../CommandsLogic'
 import { gsnCommander, getKeystorePath, getServerConfig } from '../utils'
 import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger'
 import { KeyManager } from '@opengsn/relay/dist/KeyManager'
-import { fromWei, toWei } from 'web3-utils'
 import { ether } from '@opengsn/common'
 
 const commander = gsnCommander(['g'])
@@ -20,7 +19,7 @@ const commander = gsnCommander(['g'])
   const config = getServerConfig(commander.serverConfig)
   const host = config.ethereumNodeUrl
   const logger = createCommandsLogger(commander.loglevel)
-  const logic = await new CommandsLogic(host, logger, { relayHubAddress: config.relayHubAddress }).init()
+  const logic = await new CommandsLogic(host, logger, { relayHubAddress: config.relayHubAddress as Address }).init()
   const keystorePath = getKeystorePath(commander.keystorePath)
   const keyManager = new KeyManager(1, keystorePath)
 
@@ -37,12 +36,12 @@ const commander = gsnCommander(['g'])
     keyManager,
     config,
     broadcast: commander.broadcast,
-    withdrawTarget: commander.target,
-    gasPrice: commander.gasPrice != null ? BigNumber.from(toWei(commander.gasPrice, 'gwei')) : undefined,
+    withdrawTarget: commander.target as Address,
+    gasPrice: commander.gasPrice != null ? parseGwei(commander.gasPrice) : undefined,
     useAccountBalance: commander.ethAccountAmount != null
   }
 
-  console.log(`Withdrawal amount is ${fromWei(withdrawOptions.withdrawAmount.toString())}eth`)
+  console.log(`Withdrawal amount is ${formatEther(withdrawOptions.withdrawAmount)}eth`)
   console.log('Should broadcast?', withdrawOptions.broadcast)
   console.log('Withdrawing to', withdrawOptions.withdrawTarget ?? '(owner)')
   const result = await logic.withdrawToOwner(withdrawOptions)

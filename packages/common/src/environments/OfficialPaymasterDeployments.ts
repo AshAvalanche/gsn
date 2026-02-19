@@ -1,4 +1,4 @@
-import { isValidAddress } from 'ethereumjs-util'
+import { isAddress } from 'viem'
 
 import { type Address } from '../types/Aliases'
 import { type EIP712Domain } from '../EIP712/TypedRequestData'
@@ -72,25 +72,25 @@ type PaymasterDeploymentsObject = {
   [paymasterType in PaymasterType]?: PaymasterDeployment
 }
 
-type DomainSeparatorObject = Record<Address, EIP712Domain>
+type DomainSeparatorObject = Record<string, EIP712Domain>
 
 type DeploymentObject = Record<number, PaymasterDeploymentsObject>
 
-export const DAI_CONTRACT_ADDRESS = '0x6b175474e89094c44da98b954eedeac495271d0f'
-export const UNI_CONTRACT_ADDRESS = '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984'
-export const USDC_CONTRACT_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
-export const WETH9_CONTRACT_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'
+export const DAI_CONTRACT_ADDRESS = '0x6b175474e89094c44da98b954eedeac495271d0f' as Address
+export const UNI_CONTRACT_ADDRESS = '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984' as Address
+export const USDC_CONTRACT_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' as Address
+export const WETH9_CONTRACT_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as Address
 
-const DAI_CONTRACT_ADDRESS_GOERLI = '0x11fe4b6ae13d2a6055c8d9cf65c55bac32b5d844'
-const PERMIT_ERC20_UNISWAP_V3_PAYMASTER_GOERLI_5 = '0xc7709b37c63e116cc973842ae902462580d76104'
-const SINGLETON_WHITELIST_PAYMASTER_GOERLI_5 = '0xfc9d2357570b0b2b87be4ac7461a082daaf19f4b'
+const DAI_CONTRACT_ADDRESS_GOERLI = '0x11fe4b6ae13d2a6055c8d9cf65c55bac32b5d844' as Address
+const PERMIT_ERC20_UNISWAP_V3_PAYMASTER_GOERLI_5 = '0xc7709b37c63e116cc973842ae902462580d76104' as Address
+const SINGLETON_WHITELIST_PAYMASTER_GOERLI_5 = '0xfc9d2357570b0b2b87be4ac7461a082daaf19f4b' as Address
 
-const ACCEPT_EVERYTHING_PAYMASTER_AVALANCHE_FUJI = '0x735719a8c5af199ea5b93207083787a5b548c0e2'
-const ACCEPT_EVERYTHING_PAYMASTER_BSC_TESTNET = '0x735719a8c5af199ea5b93207083787a5b548c0e2'
-const ACCEPT_EVERYTHING_PAYMASTER_GOERLI = '0x7e4123407707516bd7a3afa4e3ebceacfcbbb107'
-const ACCEPT_EVERYTHING_PAYMASTER_GOERLI_ARBITRUM = '0x9dc769b8cbd07131227b0815bed3526b1f8acd52'
-const ACCEPT_EVERYTHING_PAYMASTER_GOERLI_OPTIMISM = '0x735719a8c5af199ea5b93207083787a5b548c0e2'
-const ACCEPT_EVERYTHING_PAYMASTER_MUMBAI = '0x086c11bd5a61ac480b326916656a33c474d1e4d8'
+const ACCEPT_EVERYTHING_PAYMASTER_AVALANCHE_FUJI = '0x735719a8c5af199ea5b93207083787a5b548c0e2' as Address
+const ACCEPT_EVERYTHING_PAYMASTER_BSC_TESTNET = '0x735719a8c5af199ea5b93207083787a5b548c0e2' as Address
+const ACCEPT_EVERYTHING_PAYMASTER_GOERLI = '0x7e4123407707516bd7a3afa4e3ebceacfcbbb107' as Address
+const ACCEPT_EVERYTHING_PAYMASTER_GOERLI_ARBITRUM = '0x9dc769b8cbd07131227b0815bed3526b1f8acd52' as Address
+const ACCEPT_EVERYTHING_PAYMASTER_GOERLI_OPTIMISM = '0x735719a8c5af199ea5b93207083787a5b548c0e2' as Address
+const ACCEPT_EVERYTHING_PAYMASTER_MUMBAI = '0x086c11bd5a61ac480b326916656a33c474d1e4d8' as Address
 
 /**
  * This object exists to allow using the enums instead of addresses on Relay Provider construction.
@@ -99,70 +99,70 @@ export const OfficialPaymasterDeployments: DeploymentObject = {
   [SupportedChains.MAINNET]: {},
   [SupportedChains.GOERLI]: {
     [PaymasterType.PermitERC20UniswapV3Paymaster]:
+    {
+      type: PaymasterType.PermitERC20UniswapV3Paymaster,
+      address: PERMIT_ERC20_UNISWAP_V3_PAYMASTER_GOERLI_5,
+      supportedTokensERC20:
       {
-        type: PaymasterType.PermitERC20UniswapV3Paymaster,
-        address: PERMIT_ERC20_UNISWAP_V3_PAYMASTER_GOERLI_5,
-        supportedTokensERC20:
-          {
-            [SupportedTokenSymbols.DAI]:
-              {
-                symbol: SupportedTokenSymbols.DAI,
-                displayedName: 'Dai Stablecoin @ Goerli',
-                address: DAI_CONTRACT_ADDRESS_GOERLI
-              }
-          }
-      },
+        [SupportedTokenSymbols.DAI]:
+        {
+          symbol: SupportedTokenSymbols.DAI,
+          displayedName: 'Dai Stablecoin @ Goerli',
+          address: DAI_CONTRACT_ADDRESS_GOERLI
+        }
+      }
+    },
     [PaymasterType.SingletonWhitelistPaymaster]: {
       type: PaymasterType.SingletonWhitelistPaymaster,
       address: SINGLETON_WHITELIST_PAYMASTER_GOERLI_5,
       supportedTokensERC20: {}
     },
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI,
+      supportedTokensERC20: {}
+    }
   },
   [SupportedChains.GOERLI_OPTIMISM]: {
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI_OPTIMISM,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI_OPTIMISM,
+      supportedTokensERC20: {}
+    }
   },
   [SupportedChains.AVALANCHE_FUJI_TESTNET]: {
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_AVALANCHE_FUJI,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_AVALANCHE_FUJI,
+      supportedTokensERC20: {}
+    }
   },
   [SupportedChains.MUMBAI]: {
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_MUMBAI,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_MUMBAI,
+      supportedTokensERC20: {}
+    }
   },
   [SupportedChains.GOERLI_ARBITRUM]: {
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI_ARBITRUM,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_GOERLI_ARBITRUM,
+      supportedTokensERC20: {}
+    }
   },
   [SupportedChains.BSC_TESTNET]: {
     [PaymasterType.AcceptEverythingPaymaster]:
-      {
-        type: PaymasterType.AcceptEverythingPaymaster,
-        address: ACCEPT_EVERYTHING_PAYMASTER_BSC_TESTNET,
-        supportedTokensERC20: {}
-      }
+    {
+      type: PaymasterType.AcceptEverythingPaymaster,
+      address: ACCEPT_EVERYTHING_PAYMASTER_BSC_TESTNET,
+      supportedTokensERC20: {}
+    }
   }
 }
 
@@ -199,16 +199,16 @@ export const TokenDomainSeparators: Record<number, DomainSeparatorObject> = {
   }
 }
 
-export function getTokenBySymbol (symbol: SupportedTokenSymbols, chainId: number): Address | undefined {
+export function getTokenBySymbol(symbol: SupportedTokenSymbols, chainId: number): Address | undefined {
   return OfficialPaymasterDeployments[chainId]
     ?.[PaymasterType.PermitERC20UniswapV3Paymaster]
     ?.supportedTokensERC20
     ?.[symbol]
     ?.address
-    ?.toLowerCase()
+    ?.toLowerCase() as Address | undefined
 }
 
-export function getPaymasterAddressByTypeAndChain (
+export function getPaymasterAddressByTypeAndChain(
   paymasterType: PaymasterType | Address | undefined,
   chainId: number,
   logger: LoggerInterface
@@ -216,7 +216,7 @@ export function getPaymasterAddressByTypeAndChain (
   if (paymasterType == null) {
     throw new Error('Configured paymaster address or type is undefined!')
   }
-  if (isValidAddress(paymasterType)) {
+  if (isAddress(paymasterType)) {
     return paymasterType
   }
 
@@ -228,10 +228,10 @@ export function getPaymasterAddressByTypeAndChain (
 
   if (
     paymasterType === PaymasterType.VerifyingPaymaster ||
-    paymasterType === ''
+    (paymasterType as string) === ''
   ) {
     logger.info(`VerifyingPaymaster address is not yet known for chain ${chainId} and will be fetched from the Verifier Server`)
-    return ''
+    return '' as Address // Assuming empty string might be handled upstream or this logic is legacy hack
   }
 
   if (paymasterAddress == null) {

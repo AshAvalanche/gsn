@@ -1,10 +1,9 @@
 import { type Address, type EventName, type IntString } from './Aliases'
-import { type PrefixedHexString } from 'ethereumjs-util'
-import { type BigNumber } from '@ethersproject/bignumber'
+import { type Hex } from 'viem'
 
 // Empty interface used on purpose to mark various Event Infos in collections, used in StatisticsManager.
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface GNSContractsEvent {}
+export interface GNSContractsEvent { }
 
 /** IPenalizer.sol */
 export const CommitAdded: EventName = 'CommitAdded'
@@ -37,9 +36,9 @@ export interface TransactionRelayedEventInfo extends GNSContractsEvent {
   from: Address
   to: Address
   paymaster: Address
-  selector: PrefixedHexString // ???
-  status: IntString // RelayCallStatus
-  charge: IntString // ???
+  selector: Hex
+  status: bigint // RelayCallStatus
+  charge: bigint
 }
 
 export interface TransactionRejectedByPaymasterEventInfo extends GNSContractsEvent {
@@ -48,18 +47,18 @@ export interface TransactionRejectedByPaymasterEventInfo extends GNSContractsEve
   from: Address
   to: Address
   relayWorker: Address
-  selector: PrefixedHexString // ??
-  innerGasUsed: IntString
-  reason: PrefixedHexString // ??? should be string, see 'decodeRevertReason' for reasons logic
+  selector: Hex
+  innerGasUsed: bigint
+  reason: Hex // decoded in other places if needed
 }
 
 export interface DepositedEventInfo extends GNSContractsEvent {
   paymaster: Address
   from: Address
-  amount: IntString
+  amount: bigint
 }
 
-export function isInfoFromEvent (info: RelayInfoUrl): boolean {
+export function isInfoFromEvent(info: RelayInfoUrl): boolean {
   return 'relayManager' in info
 }
 
@@ -78,26 +77,26 @@ export const allStakeManagerEvents = [StakeAdded, HubAuthorized, HubUnauthorized
 export interface StakeAddedEventInfo extends GNSContractsEvent {
   relayManager: Address
   owner: Address
-  stake: IntString
-  unstakeDelay: IntString
+  stake: bigint
+  unstakeDelay: bigint
 }
 
 export interface StakeUnlockedEventInfo extends GNSContractsEvent {
   relayManager: Address
   owner: Address
-  withdrawBlock: IntString
+  withdrawBlock: bigint
 }
 
 export interface StakeWithdrawnEventInfo extends GNSContractsEvent {
   relayManager: Address
   owner: Address
-  amount: IntString
+  amount: bigint
 }
 
 export interface StakePenalizedEventInfo extends GNSContractsEvent {
   relayManager: Address
   beneficiary: Address
-  reward: IntString
+  reward: bigint
 }
 
 export interface HubAuthorizedEventInfo extends GNSContractsEvent {
@@ -108,13 +107,13 @@ export interface HubAuthorizedEventInfo extends GNSContractsEvent {
 export interface HubUnauthorizedEventInfo extends GNSContractsEvent {
   relayManager: Address
   relayHub: Address
-  removalTime: IntString
+  removalTime: bigint
 }
 
 export interface StakeInfo {
-  stake: BigNumber
-  unstakeDelay: BigNumber
-  withdrawTime: BigNumber
+  stake: bigint
+  unstakeDelay: bigint
+  withdrawTime: bigint
   owner: Address
   token: Address
 }

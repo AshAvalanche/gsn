@@ -1,4 +1,5 @@
 import commander from 'commander'
+import { parseGwei, toHex, type Address } from 'viem'
 import { CommandsLogic } from '../CommandsLogic'
 import {
   getMnemonic,
@@ -8,7 +9,6 @@ import {
   saveDeployment,
   showDeployment
 } from '../utils'
-import { toHex, toWei } from 'web3-utils'
 import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger'
 import { type Environment, environments, EnvironmentsKeys } from '@opengsn/common'
 
@@ -47,7 +47,9 @@ gsnCommander(['n', 'f', 'm', 'g', 'l'])
   await logic.init()
   const from = commander.from ?? await logic.findWealthyAccount()
 
-  const gasPrice = toHex(commander.gasPrice != null ? toWei(commander.gasPrice, 'gwei').toString() : (await logic.getGasPrice()).toString())
+  const gasPrice = commander.gasPrice != null
+    ? toHex(parseGwei(commander.gasPrice))
+    : toHex(await logic.getGasPrice())
   const gasLimit = commander.gasLimit
 
   if (commander.testToken === (commander.stakingToken != null)) {
@@ -55,24 +57,24 @@ gsnCommander(['n', 'f', 'm', 'g', 'l'])
   }
 
   const deploymentResult = await logic.deployGsnContracts({
-    from,
+    from: from as Address,
     gasPrice,
     gasLimit,
     relayHubConfiguration,
     penalizerConfiguration,
-    stakingTokenAddress: commander.stakingToken,
+    stakingTokenAddress: commander.stakingToken as Address,
     minimumTokenStake: commander.minimumTokenStake,
     deployPaymaster: commander.testPaymaster,
     deployTestToken: commander.testToken,
     verbose: true,
     skipConfirmation: commander.skipConfirmation,
-    forwarderAddress: commander.forwarder,
-    stakeManagerAddress: commander.stakeManager,
-    relayHubAddress: commander.relayHub,
-    penalizerAddress: commander.penalizer,
-    relayRegistryAddress: commander.relayRegistrar,
-    burnAddress: commander.burnAddress,
-    devAddress: commander.devAddress
+    forwarderAddress: commander.forwarder as Address,
+    stakeManagerAddress: commander.stakeManager as Address,
+    relayHubAddress: commander.relayHub as Address,
+    penalizerAddress: commander.penalizer as Address,
+    relayRegistryAddress: commander.relayRegistrar as Address,
+    burnAddress: commander.burnAddress as Address,
+    devAddress: commander.devAddress as Address
   })
   const paymasterName = 'Default'
 
