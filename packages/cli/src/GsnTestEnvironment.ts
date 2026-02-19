@@ -73,14 +73,21 @@ class GsnTestEnvironmentClass {
    * @param logger
    * @return
    */
-  async deployGsn(host: string, logger?: LoggerInterface): Promise<GSNContractsDeployment> {
+  async deployGsn(
+    host: string,
+    logger?: LoggerInterface,
+    mnemonic?: string,
+    derivationPath?: string,
+    derivationIndex?: string,
+    privateKey?: string
+  ): Promise<GSNContractsDeployment> {
     const _host: string = getNetworkUrl(host)
     if (_host == null) {
       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       throw new Error(`startGsn: expected network (${supportedNetworks().join('|')}) or url`)
     }
     logger = logger ?? createServerLogger('error', '', '')
-    const commandsLogic = new CommandsLogic(_host, logger, {})
+    const commandsLogic = new CommandsLogic(_host, logger, {}, mnemonic, derivationPath, derivationIndex, privateKey)
     await commandsLogic.init()
     const from = await commandsLogic.findWealthyAccount()
     const deploymentResult = await commandsLogic.deployGsnContracts({
@@ -122,7 +129,11 @@ class GsnTestEnvironmentClass {
     port?: number,
     logger?: LoggerInterface,
     deterministic: boolean = true,
-    relayServerParamsOverride: Partial<ServerConfigParams> = {}
+    relayServerParamsOverride: Partial<ServerConfigParams> = {},
+    mnemonic?: string,
+    derivationPath?: string,
+    derivationIndex?: string,
+    privateKey?: string
   ): Promise<TestEnvironment> {
     await this.stopGsn()
     const _host: string = getNetworkUrl(host)
@@ -131,8 +142,8 @@ class GsnTestEnvironmentClass {
       throw new Error(`startGsn: expected network (${supportedNetworks().join('|')}) or url`)
     }
     logger = logger ?? createCommandsLogger('silent')
-    const deploymentResult = await this.deployGsn(host, logger)
-    const commandsLogic = new CommandsLogic(_host, logger, {})
+    const deploymentResult = await this.deployGsn(host, logger, mnemonic, derivationPath, derivationIndex, privateKey)
+    const commandsLogic = new CommandsLogic(_host, logger, {}, mnemonic, derivationPath, derivationIndex, privateKey)
     await commandsLogic.init()
     const from = await commandsLogic.findWealthyAccount()
 

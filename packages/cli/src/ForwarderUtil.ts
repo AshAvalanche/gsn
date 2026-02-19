@@ -1,4 +1,4 @@
-import { type WalletClient, type PublicClient, type Address, type Hex } from 'viem'
+import { type WalletClient, type PublicClient, type Address, type Hex, type Account } from 'viem'
 import { GsnDomainSeparatorType, GsnRequestType, type LoggerInterface } from '@opengsn/common'
 
 export async function registerForwarderForGsn(
@@ -8,9 +8,9 @@ export async function registerForwarderForGsn(
   walletClient: WalletClient,
   publicClient: PublicClient,
   logger?: LoggerInterface,
-  from?: Address
+  from?: Address | Account
 ): Promise<void> {
-  const account = from ?? walletClient.account?.address
+  const account = from ?? walletClient.account
   if (!account) {
     throw new Error('registerForwarderForGsn: No account provided or found in walletClient')
   }

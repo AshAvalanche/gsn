@@ -123,6 +123,7 @@ export class CommandsLogic {
   private readonly publicClient: PublicClient
   private readonly walletClient: WalletClient
   private readonly logger: LoggerInterface
+  private account?: HDAccount | PrivateKeyAccount
 
   private deployment?: GSNContractsDeployment
 
@@ -136,12 +137,15 @@ export class CommandsLogic {
     privateKey?: string
   ) {
     this.logger = logger
+    this.account = undefined
 
     // Build viem transport
     const transport = http(host, { timeout: 120_000 })
 
     // Build viem public client (read-only)
     this.publicClient = createPublicClient({ transport }) as PublicClient
+    // Local account (private key or mnemonic)
+    this.account = undefined
 
     // Build account from mnemonic or private key
     let account: HDAccount | PrivateKeyAccount | undefined
@@ -157,6 +161,7 @@ export class CommandsLogic {
       account = privateKeyToAccount(pk)
       this.logger.warn(`Using private key account ${account.address}`)
     }
+    this.account = account
 
     // Build viem wallet client (write)
     this.walletClient = createWalletClient({ account, transport }) as WalletClient
@@ -180,21 +185,23 @@ export class CommandsLogic {
     return this
   }
 
-  async findWealthyAccount(requiredBalance = parseEther('2')): Promise<string> {
+  async findWealthyAccount(requiredBalance = parseEther('0.5')): Promise<string> {
     let accounts: readonly ViemAddress[] = []
+    const balances: string[] = []
     try {
       accounts = await this.walletClient.getAddresses()
       for (const account of accounts) {
         const balance = await this.publicClient.getBalance({ address: account })
+        balances.push(`${account}: ${formatEther(balance)}`)
         if (balance >= requiredBalance) {
-          this.logger.info(`Found funded account ${account}`)
+          this.logger.info(`Found funded account ${account} balance: ${formatEther(balance)}`)
           return account
         }
       }
     } catch (error: any) {
       this.logger.error(`Failed to retrieve accounts and balances: ${error.toString() as string}`)
     }
-    throw new Error(`could not find unlocked account with sufficient balance; all accounts:\n - ${accounts.join('\n - ')}`)
+    throw new Error(`could not find unlocked account with sufficient balance; all accounts:\n - ${balances.join('\n - ')}`)
   }
 
   async isRelayReady(relayUrl: string): Promise<boolean> {
@@ -316,12 +323,13 @@ export class CommandsLogic {
         this.logger.info('Funding relayer')
 
         const txHash = await this.walletClient.sendTransaction({
-          account: options.from as ViemAddress,
+          account: this.getViemAccount(options.from),
           to: relayAddress as ViemAddress,
           value: BigInt(options.funds.toString()),
           chain: null
         } as any)
         transactions.push(txHash)
+        await this.publicClient.waitForTransactionReceipt({ hash: txHash })
       }
 
       if (owner === constants.ZERO_ADDRESS) {
@@ -368,15 +376,14 @@ export class CommandsLogic {
           try {
             depositTx = await stakingTokenContract.write.deposit([], {
               ...sendOptions,
-              from: options.from,
-              value: stakeValue,
               chain: null,
-              account: options.from
-            } as any) as any
+              account: this.getViemAccount(options.from)
+            } as any)
           } catch (e) {
             throw new Error('No deposit() method on default token. is it wrapped ETH?')
           }
-          transactions.push(depositTx.hash)
+          transactions.push(depositTx)
+          await this.publicClient.waitForTransactionReceipt({ hash: depositTx })
         }
 
         const currentAllowance = await stakingTokenContract.read.allowance([options.from, stakeManager.address] as any) as bigint
@@ -387,20 +394,22 @@ export class CommandsLogic {
             ...sendOptions,
             from: options.from,
             chain: null,
-            account: options.from
+            account: this.getViemAccount(options.from)
           } as any)
           // @ts-ignore
-          transactions.push(approveTx.hash)
+          transactions.push(approveTx)
+          await this.publicClient.waitForTransactionReceipt({ hash: approveTx })
         }
 
         const stakeTx = await stakeManager
           .write.stakeForRelayManager([stakingToken, relayAddress, BigInt(options.unstakeDelay), stakeValue] as any, {
             ...sendOptions,
             chain: null,
-            account: options.from
+            account: this.getViemAccount(options.from)
           } as any)
         // @ts-ignore
-        transactions.push(stakeTx.hash)
+        transactions.push(stakeTx)
+        await this.publicClient.waitForTransactionReceipt({ hash: stakeTx })
       }
 
       try {
@@ -412,9 +421,10 @@ export class CommandsLogic {
         }
         this.logger.info('Authorizing relayer for hub')
         const authorizeTx = await stakeManager
-          .write.authorizeHubByOwner([relayAddress, relayHubAddress] as any, sendOptions as any)
+          .write.authorizeHubByOwner([relayAddress, relayHubAddress] as any, { ...sendOptions, account: this.getViemAccount(options.from) } as any)
         // @ts-ignore
-        transactions.push(authorizeTx.hash)
+        transactions.push(authorizeTx)
+        await this.publicClient.waitForTransactionReceipt({ hash: authorizeTx })
       }
 
       await this.waitForRelay(options.relayUrl)
@@ -490,7 +500,7 @@ export class CommandsLogic {
         this.logger.info('Calling in view mode')
         if (options.broadcast) {
           const txHash = await this.walletClient.sendTransaction({
-            account: relayManager as ViemAddress,
+            account: this.getViemAccount(relayManager),
             to: withdrawTarget as ViemAddress,
             value: options.withdrawAmount,
             gas: BigInt(gasLimit),
@@ -589,7 +599,8 @@ export class CommandsLogic {
     }, deployOptions.relayHubAddress, { ...options }, deployOptions.skipConfirmation)
 
     if (!isSameAddress(await rInstance.read.getRelayRegistrar() as Address, rrInstance.address)) {
-      await rInstance.write.setRegistrar([rrInstance.address] as any, { chain: null, account: options.from as any })
+      const tx = await rInstance.write.setRegistrar([rrInstance.address] as any, { chain: null, account: this.getViemAccount(options.from as Hex) })
+      await this.publicClient.waitForTransactionReceipt({ hash: tx })
     }
 
     let pmInstance: GetContractReturnType | undefined
@@ -599,12 +610,12 @@ export class CommandsLogic {
 
     await registerForwarderForGsn(
       defaultGsnConfig.domainSeparatorName,
-      fInstance.address as unknown as ViemAddress,
-      Forwarder.abi as any,
+      fInstance.address as ViemAddress, // Assuming forwarderAddress refers to fInstance.address
+      Forwarder.abi,
       this.walletClient,
       this.publicClient,
       this.logger,
-      options.from as ViemAddress
+      this.getViemAccount(options.from as Hex)
     )
 
     let stakingTokenAddress = deployOptions.stakingTokenAddress
@@ -613,7 +624,8 @@ export class CommandsLogic {
     if (deployOptions.deployTestToken ?? false) {
       ttInstance = await this.getContractInstance(TestWrappedNativeToken, {}, undefined, { ...options }, deployOptions.skipConfirmation)
       this.logger.info('Setting minimum stake of 1 TestWeth on Hub')
-      await rInstance.write.setMinimumStakes([[ttInstance.address] as any, [BigInt(1e18)] as any], { chain: null, account: options.from as any })
+      const tx = await rInstance.write.setMinimumStakes([[ttInstance.address] as any, [BigInt(1e18)] as any], { chain: null, account: this.getViemAccount(options.from as Hex) })
+      await this.publicClient.waitForTransactionReceipt({ hash: tx })
       stakingTokenAddress = ttInstance.address
     }
 
@@ -624,7 +636,8 @@ export class CommandsLogic {
     const formatToken = (val: any): string => formatTokenAmount(BigInt(val.toString()), Number(tokenDecimals), stakingTokenAddress ?? '0x', tokenSymbol)
 
     this.logger.info(`Setting minimum stake of ${formatToken(deployOptions.minimumTokenStake)}`)
-    await rInstance.write.setMinimumStakes([[stakingTokenAddress] as any, [BigInt(deployOptions.minimumTokenStake)] as any], { chain: null, account: options.from as any })
+    const tx = await rInstance.write.setMinimumStakes([[stakingTokenAddress] as any, [BigInt(deployOptions.minimumTokenStake)] as any], { chain: null, account: this.getViemAccount(options.from as Hex) })
+    await this.publicClient.waitForTransactionReceipt({ hash: tx })
     this.deployment = {
       relayHubAddress: rInstance.address,
       stakeManagerAddress: sInstance.address,
@@ -653,7 +666,7 @@ export class CommandsLogic {
         abi: json.abi,
         bytecode: json.bytecode,
         args,
-        account: options.from as ViemAddress,
+        account: this.getViemAccount(options.from as Hex),
         chain: null,
         gas: BigInt(options.gasLimit),
         gasPrice: BigInt(options.gasPrice)
@@ -674,8 +687,10 @@ export class CommandsLogic {
 
   async deployPaymaster(options: Required<SendOptions>, hub: Address, fInstance: any, skipConfirmation: boolean | undefined): Promise<GsnContract<Abi>> {
     const pmInstance = await this.getContractInstance(Paymaster, {}, undefined, { ...options }, skipConfirmation)
-    await pmInstance.write.setRelayHub([hub] as any, { chain: null, account: options.from as any })
-    await pmInstance.write.setTrustedForwarder([fInstance.address] as any, { chain: null, account: options.from as any })
+    const tx1 = await pmInstance.write.setRelayHub([hub] as any, { chain: null, account: this.getViemAccount(options.from as Hex) })
+    await this.publicClient.waitForTransactionReceipt({ hash: tx1 })
+    const tx2 = await pmInstance.write.setTrustedForwarder([fInstance.address] as any, { chain: null, account: this.getViemAccount(options.from as Hex) })
+    await this.publicClient.waitForTransactionReceipt({ hash: tx2 })
     return pmInstance
   }
 
@@ -696,5 +711,12 @@ export class CommandsLogic {
     const gasPrice = await this.publicClient.getGasPrice()
     this.logger.info(`Using network gas price of ${formatGwei(gasPrice)}gwei`)
     return gasPrice
+  }
+
+  private getViemAccount(address: Address): ViemAddress | HDAccount | PrivateKeyAccount {
+    if (this.account != null && isSameAddress(this.account.address, address)) {
+      return this.account
+    }
+    return address as ViemAddress
   }
 }

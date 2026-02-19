@@ -508,7 +508,7 @@ returnValue        | ${viewRelayCallRet.returnValue}
       throw new Error('_init was already called')
     }
     const latestBlock = await this.contractInteractor.getBlock('latest')
-    this.lastScannedBlock = latestBlock.number - 10
+    this.lastScannedBlock = Number(latestBlock.number) - 10
     if (this.lastScannedBlock < 0) {
       this.lastScannedBlock = 0
     }
