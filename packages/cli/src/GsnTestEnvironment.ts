@@ -266,9 +266,7 @@ class GsnTestEnvironmentClass {
         deployment: deploymentResult
       })
     await contractInteractor.init()
-    const gasLimitCalculator = new RelayCallGasLimitCalculationHelper(
-      logger, contractInteractor, calldataEstimationSlackFactor, serverDefaultConfiguration.maxAcceptanceBudget
-    )
+    const gasLimitCalculator = contractInteractor.gasLimitCalculator
     const resolvedDeployment = contractInteractor.getDeployment()
     const httpProvider = new Web3.providers.HttpProvider(host)
     const web3MethodsBuilder = new Web3MethodsBuilder(new Web3(httpProvider), resolvedDeployment)

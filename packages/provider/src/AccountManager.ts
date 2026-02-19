@@ -19,7 +19,8 @@ import {
   TypedRequestData,
   getEip712Signature,
   isSameAddress,
-  removeHexPrefix
+  removeHexPrefix,
+  Hex
 } from '@opengsn/common'
 
 import { type GSNConfig } from './GSNConfigurator'
@@ -29,9 +30,9 @@ export interface AccountKeypair {
   address: Address
 }
 
-function toAddress (privateKey: PrefixedHexString): Address {
+function toAddress(privateKey: PrefixedHexString): Address {
   const wallet = ethWallet.fromPrivateKey(Buffer.from(removeHexPrefix(privateKey), 'hex'))
-  return wallet.getChecksumAddressString()
+  return wallet.getChecksumAddressString() as Address
 }
 
 export class AccountManager {
@@ -41,13 +42,13 @@ export class AccountManager {
   private readonly config: GSNConfig
   readonly chainId: number
 
-  constructor (signer: JsonRpcSigner, chainId: number, config: GSNConfig) {
+  constructor(signer: JsonRpcSigner, chainId: number, config: GSNConfig) {
     this.signer = signer
     this.chainId = chainId
     this.config = config
   }
 
-  addAccount (privateKey: PrefixedHexString): AccountKeypair {
+  addAccount(privateKey: PrefixedHexString): AccountKeypair {
     // TODO: backwards-compatibility 101 - remove on next version bump
     // addAccount used to accept AccountKeypair with Buffer in it
     // @ts-ignore
@@ -67,7 +68,7 @@ export class AccountManager {
     return keypair
   }
 
-  newAccount (): AccountKeypair {
+  newAccount(): AccountKeypair {
     const a = ethWallet.generate()
     const privateKey = a.getPrivateKeyString()
     this.addAccount(privateKey)
@@ -78,7 +79,7 @@ export class AccountManager {
     }
   }
 
-  signMessage (message: string, from: Address): PrefixedHexString {
+  signMessage(message: string, from: Address): PrefixedHexString {
     const keypair = this.accounts.find(account => isSameAddress(account.address, from))
     if (keypair == null) {
       throw new Error(`Account ${from} not found`)
@@ -87,7 +88,7 @@ export class AccountManager {
     return personalSign({ privateKey, data: message })
   }
 
-  async signTransaction (transactionConfig: TransactionRequest, from: Address): Promise<RLPEncodedTransaction> {
+  async signTransaction(transactionConfig: TransactionRequest, from: Address): Promise<RLPEncodedTransaction> {
     if (transactionConfig.chainId != null && transactionConfig.chainId !== this.chainId) {
       throw new Error(`This provider is initialized for chainId ${this.chainId} but transaction targets chainId ${transactionConfig.chainId}`)
     }
@@ -109,7 +110,7 @@ export class AccountManager {
     return { raw, tx: transaction }
   }
 
-  private findPrivateKey (from: Address): PrefixedHexString {
+  private findPrivateKey(from: Address): PrefixedHexString {
     const keypair = this.accounts.find(account => isSameAddress(account.address, from))
     if (keypair == null) {
       throw new Error(`Account ${from} not found`)
@@ -117,11 +118,11 @@ export class AccountManager {
     return keypair.privateKey
   }
 
-  signTypedData (typedMessage: TypedMessage<any>, from: Address): PrefixedHexString {
+  signTypedData(typedMessage: TypedMessage<any>, from: Address): PrefixedHexString {
     return this._signWithControlledKey(this.findPrivateKey(from), typedMessage)
   }
 
-  async sign (
+  async sign(
     domainSeparatorName: string,
     relayRequest: RelayRequest
   ): Promise<PrefixedHexString> {
@@ -149,12 +150,12 @@ export class AccountManager {
         data: signedData,
         signature,
         version: SignTypedDataVersion.V4
-      })
+      }) as Hex
     } catch (error: any) {
       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       throw new Error(`Failed to sign relayed transaction for ${relayRequest.request.from}: ${error.message}`)
     }
-    if (!isSameAddress(relayRequest.request.from.toLowerCase(), rec)) {
+    if (!isSameAddress(relayRequest.request.from.toLowerCase() as Address, rec)) {
       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       throw new Error(`Internal RelayClient exception: signature is not correct: sender=${relayRequest.request.from}, recovered=${rec}`)
     }
@@ -164,14 +165,16 @@ export class AccountManager {
   // These methods are extracted to
   // a) allow different implementations in the future, and
   // b) allow spying on Account Manager in tests
-  async _signWithProvider (signedData: any): Promise<string> {
-    return await getEip712Signature(
-      this.signer,
-      signedData
+  async _signWithProvider(signedData: any): Promise<string> {
+    // @ts-ignore
+    return await this.signer._signTypedData(
+      signedData.domain,
+      signedData.types,
+      signedData.message
     )
   }
 
-  _signWithControlledKey (privateKey: PrefixedHexString, signedData: TypedMessage<any>): string {
+  _signWithControlledKey(privateKey: PrefixedHexString, signedData: TypedMessage<any>): string {
     return signTypedData({
       privateKey: Buffer.from(removeHexPrefix(privateKey), 'hex'),
       data: signedData,
@@ -179,11 +182,11 @@ export class AccountManager {
     })
   }
 
-  getAccounts (): string[] {
+  getAccounts(): string[] {
     return this.accounts.map(it => it.address)
   }
 
-  switchSigner (signer: JsonRpcSigner): void {
+  switchSigner(signer: JsonRpcSigner): void {
     this.signer = signer
   }
 }

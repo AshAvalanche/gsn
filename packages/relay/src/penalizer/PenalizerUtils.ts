@@ -15,10 +15,11 @@ import {
   toBuffer,
   unpadBuffer
 } from 'ethereumjs-util'
+import { type Hex } from 'viem'
 
 import { signatureRSV2Hex } from '@opengsn/common'
 
-export function getDataAndSignature (tx: TypedTransaction, chainId: number): { data: string, signature: string } {
+export function getDataAndSignature(tx: TypedTransaction, chainId: number): { data: string, signature: string } {
   if (tx.to == null) {
     throw new Error('tx.to must be defined')
   }
@@ -50,13 +51,13 @@ export function getDataAndSignature (tx: TypedTransaction, chainId: number): { d
     vInt -= chainId * 2 + 8
   }
   const data = `0x${encode(input).toString('hex')}`
-  const signature = signatureRSV2Hex(tx.r, tx.s, vInt)
+  const signature = signatureRSV2Hex(bufferToHex(tx.r.toBuffer()) as Hex, bufferToHex(tx.s.toBuffer()) as Hex, vInt)
   return {
     data,
     signature
   }
 }
 
-export function signedTransactionToHash (signedTransaction: PrefixedHexString, transactionOptions: TxOptions): PrefixedHexString {
+export function signedTransactionToHash(signedTransaction: PrefixedHexString, transactionOptions: TxOptions): PrefixedHexString {
   return bufferToHex(TransactionFactory.fromSerializedData(toBuffer(signedTransaction), transactionOptions).hash())
 }

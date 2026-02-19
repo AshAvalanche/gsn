@@ -9,7 +9,7 @@ export class ReputationStoreManager {
   private readonly txstore: Nedb<any>
   private readonly logger: LoggerInterface
 
-  constructor ({ workdir = '/tmp/test/', inMemory = false }, logger: LoggerInterface) {
+  constructor({ workdir = '/tmp/test/', inMemory = false }, logger: LoggerInterface) {
     this.logger = logger
     const filename = inMemory ? undefined : `${workdir}/${REPUTATION_STORE_FILENAME}`
     this.txstore = new Nedb({
@@ -23,9 +23,9 @@ export class ReputationStoreManager {
     this.logger.info(`Reputation system database location: ${dbLocationStr}`)
   }
 
-  async createEntry (paymaster: Address, reputation: number): Promise<ReputationEntry> {
+  async createEntry(paymaster: Address, reputation: number): Promise<ReputationEntry> {
     const entry: ReputationEntry = {
-      paymaster: paymaster.toLowerCase(),
+      paymaster: paymaster.toLowerCase() as Address,
       reputation,
       lastAcceptedRelayRequestTs: 0,
       abuseStartedBlock: 0,
@@ -34,7 +34,7 @@ export class ReputationStoreManager {
     return await this.txstore.insertAsync(entry)
   }
 
-  async clearAbuseFlag (paymaster: Address, reputation: number): Promise<void> {
+  async clearAbuseFlag(paymaster: Address, reputation: number): Promise<void> {
     const update: Partial<ReputationEntry> = {
       reputation,
       abuseStartedBlock: 0
@@ -42,7 +42,7 @@ export class ReputationStoreManager {
     await this.updateEntry(paymaster, update)
   }
 
-  async setAbuseFlag (paymaster: Address, eventBlockNumber: number): Promise<void> {
+  async setAbuseFlag(paymaster: Address, eventBlockNumber: number): Promise<void> {
     const update: Partial<ReputationEntry> = {
       abuseStartedBlock: eventBlockNumber
     }
@@ -50,7 +50,7 @@ export class ReputationStoreManager {
     await this.updateEntry(paymaster, update)
   }
 
-  async updateLastAcceptedTimestamp (paymaster: Address): Promise<void> {
+  async updateLastAcceptedTimestamp(paymaster: Address): Promise<void> {
     const lastAcceptedRelayRequestTs = Date.now()
     const update: Partial<ReputationEntry> = {
       lastAcceptedRelayRequestTs
@@ -59,7 +59,7 @@ export class ReputationStoreManager {
     await this.updateEntry(paymaster, update)
   }
 
-  async updatePaymasterReputation (paymaster: Address, change: number, oldChangesExpirationBlock: number, eventBlockNumber: number): Promise<void> {
+  async updatePaymasterReputation(paymaster: Address, change: number, oldChangesExpirationBlock: number, eventBlockNumber: number): Promise<void> {
     if (eventBlockNumber <= oldChangesExpirationBlock) {
       throw new Error(`Invalid change expiration parameter! Passed ${oldChangesExpirationBlock}, but event was emitted at block height ${eventBlockNumber}`)
     }
@@ -80,17 +80,17 @@ export class ReputationStoreManager {
     await this.updateEntry(paymaster, update)
   }
 
-  private async updateEntry (paymaster: Address, update: Partial<ReputationEntry>): Promise<void> {
+  private async updateEntry(paymaster: Address, update: Partial<ReputationEntry>): Promise<void> {
     const existing: ReputationEntry = await this.txstore.findOneAsync({ paymaster: paymaster.toLowerCase() })
     const entry = Object.assign({}, existing, update)
     await this.txstore.updateAsync({ paymaster: existing.paymaster }, { $set: entry })
   }
 
-  async getEntry (paymaster: Address): Promise<ReputationEntry | undefined> {
+  async getEntry(paymaster: Address): Promise<ReputationEntry | undefined> {
     return await this.txstore.findOneAsync({ paymaster: paymaster.toLowerCase() })
   }
 
-  async clearAll (): Promise<void> {
+  async clearAll(): Promise<void> {
     await this.txstore.removeAsync({}, { multi: true })
   }
 }

@@ -7,7 +7,8 @@ import {
   type RelayFilter,
   validateRelayUrl,
   isSameAddress,
-  shuffle
+  shuffle,
+  constants
 } from '@opengsn/common'
 
 import { type GSNConfig } from './GSNConfigurator'
@@ -29,14 +30,14 @@ export class KnownRelaysManager {
   public preferredRelayers: RelayInfoUrl[] = []
   public allRelayers: RegistrarRelayInfo[] = []
 
-  constructor (contractInteractor: ContractInteractor, logger: LoggerInterface, config: GSNConfig, relayFilter?: RelayFilter) {
+  constructor(contractInteractor: ContractInteractor, logger: LoggerInterface, config: GSNConfig, relayFilter?: RelayFilter) {
     this.config = config
     this.logger = logger
     this.relayFilter = relayFilter ?? DefaultRelayFilter
     this.contractInteractor = contractInteractor
   }
 
-  async refresh (): Promise<void> {
+  async refresh(): Promise<void> {
     this._refreshFailures()
     this.preferredRelayers = this.config.preferredRelays.map(relayUrl => {
       return { relayUrl }
@@ -44,17 +45,17 @@ export class KnownRelaysManager {
     this.allRelayers = await this.getRelayInfoForManagers()
   }
 
-  getRelayInfoForManager (address: string): RegistrarRelayInfo | undefined {
-    return this.allRelayers.find(info => isSameAddress(info.relayManager, address))
+  getRelayInfoForManager(address: string): RegistrarRelayInfo | undefined {
+    return this.allRelayers.find(info => isSameAddress(info.relayManager as unknown as Address, address as unknown as Address))
   }
 
-  async getRelayInfoForManagers (): Promise<RegistrarRelayInfo[]> {
+  async getRelayInfoForManagers(): Promise<RegistrarRelayInfo[]> {
     const relayInfos: RegistrarRelayInfo[] = await this.contractInteractor.getRegisteredRelays()
     this.logger.info(`fetchRelaysAdded: found ${relayInfos.length} relays`)
 
     const blacklistFilteredRelayInfos = relayInfos.filter((info: RegistrarRelayInfo) => {
       const isHostBlacklisted = this.config.blacklistedRelays.find(relay => info.relayUrl.toLowerCase().includes(relay.toLowerCase())) != null
-      const isManagerBlacklisted = this.config.blacklistedRelays.find(relay => isSameAddress(info.relayManager, relay)) != null
+      const isManagerBlacklisted = this.config.blacklistedRelays.find(relay => isSameAddress(info.relayManager as unknown as Address, relay as unknown as Address)) != null
       return !(isHostBlacklisted || isManagerBlacklisted)
     })
     const filteredRelayInfos = blacklistFilteredRelayInfos.filter(this.relayFilter)
@@ -64,7 +65,7 @@ export class KnownRelaysManager {
     return filteredRelayInfos
   }
 
-  _refreshFailures (): void {
+  _refreshFailures(): void {
     const newMap = new Map<string, RelayFailureInfo[]>()
     this.relayFailures.forEach((value: RelayFailureInfo[], key: string) => {
       newMap.set(key, value.filter(failure => {
@@ -75,7 +76,7 @@ export class KnownRelaysManager {
     this.relayFailures = newMap
   }
 
-  async getRelaysShuffledForTransaction (): Promise<RelayInfoUrl[][]> {
+  async getRelaysShuffledForTransaction(): Promise<RelayInfoUrl[][]> {
     const sortedRelays: RelayInfoUrl[][] = []
     // preferred relays are copied as-is, unsorted (we don't have any info about them anyway to sort)
     sortedRelays[0] = Array.from(this.preferredRelayers)
@@ -96,7 +97,7 @@ export class KnownRelaysManager {
     return sortedRelays
   }
 
-  getAuditors (excludeUrls: string[]): string[] {
+  getAuditors(excludeUrls: string[]): string[] {
     if (this.config.auditorsCount === 0) {
       this.logger.debug('skipping audit step as "auditorsCount" config parameter is set to 0')
       return []
@@ -126,7 +127,7 @@ export class KnownRelaysManager {
     return auditors
   }
 
-  saveRelayFailure (lastErrorTime: number, relayManager: Address, relayUrl: string): void {
+  saveRelayFailure(lastErrorTime: number, relayManager: Address, relayUrl: string): void {
     const relayFailures = this.relayFailures.get(relayUrl)
     const newFailureInfo = {
       lastErrorTime,
@@ -140,7 +141,7 @@ export class KnownRelaysManager {
     }
   }
 
-  isPreferred (relayUrl: string): boolean {
+  isPreferred(relayUrl: string): boolean {
     return this.preferredRelayers.find(it => it.relayUrl.toLowerCase() === relayUrl.toLowerCase()) != null
   }
 }

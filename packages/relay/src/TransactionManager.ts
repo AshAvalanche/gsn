@@ -3,6 +3,7 @@ import EthVal from 'ethval'
 import chalk from 'chalk'
 import { EventEmitter } from 'events'
 import { Mutex } from 'async-mutex'
+import Common from '@ethereumjs/common'
 import { FeeMarketEIP1559Transaction, Transaction, type TxOptions, type TypedTransaction } from '@ethereumjs/tx'
 import { type PrefixedHexString } from 'ethereumjs-util'
 
@@ -29,7 +30,7 @@ import {
 } from './StoredTransaction'
 
 import { type GasPriceFetcher } from './GasPriceFetcher'
-import { toBN } from 'web3-utils'
+import { toHex } from 'viem'
 
 export interface SignedTransactionDetails {
   transactionHash: PrefixedHexString
@@ -42,7 +43,7 @@ export interface SendTransactionDetails {
   serverAction: ServerAction
   method?: any
   destination: Address
-  value?: IntString
+  value?: IntString | bigint
   gasLimit?: number
   maxFeePerGas?: IntString
   maxPriorityFeePerGas?: IntString
@@ -83,7 +84,7 @@ export class TransactionManager extends EventEmitter {
   transactionType!: TransactionType
   rawTxOptions!: TxOptions
 
-  constructor (dependencies: ServerDependencies, config: ServerConfigParams) {
+  constructor(dependencies: ServerDependencies, config: ServerConfigParams) {
     super()
     this.contractInteractor = dependencies.contractInteractor
     this.txStoreManager = dependencies.txStoreManager
@@ -95,21 +96,24 @@ export class TransactionManager extends EventEmitter {
     this._initNonces()
   }
 
-  _initNonces (): void {
+  _initNonces(): void {
     // todo: initialize nonces for all signers (currently one manager, one worker)
     this.nonces[this.managerKeyManager.getAddress(0)] = 0
     this.nonces[this.workersKeyManager.getAddress(0)] = 0
   }
 
-  async init (transactionType: TransactionType): Promise<void> {
+  async init(transactionType: TransactionType): Promise<void> {
     this.transactionType = transactionType
-    this.rawTxOptions = this.contractInteractor.getRawTxOptions()
-    if (this.rawTxOptions == null) {
-      throw new Error('init failed for TransactionManager, was ContractInteractor properly initialized?')
+    const chainId = this.contractInteractor.chainId
+    this.rawTxOptions = {
+      common: Common.custom({
+        chainId: Number(chainId),
+        defaultHardfork: 'london'
+      })
     }
   }
 
-  printBoostedTransactionLog (txHash: string, creationBlock: ShortBlockInfo, maxFeePerGas: number, maxPriorityFeePerGas: number, isMaxGasPriceReached: boolean): void {
+  printBoostedTransactionLog(txHash: string, creationBlock: ShortBlockInfo, maxFeePerGas: number, maxPriorityFeePerGas: number, isMaxGasPriceReached: boolean): void {
     const maxFeePerGasHumanReadableOld: string = new EthVal(maxFeePerGas).toGwei().toFixed(4)
     const maxPriorityFeePerGasHumanReadableOld: string = new EthVal(maxPriorityFeePerGas).toGwei().toFixed(4)
     this.logger.info(`Boosting stale transaction:
@@ -120,7 +124,7 @@ created at               | block ${JSON.stringify(creationBlock)}
 `)
   }
 
-  printSendTransactionLog (transaction: StoredTransaction, from: Address): void {
+  printSendTransactionLog(transaction: StoredTransaction, from: Address): void {
     if (transaction.to == null) {
       throw new Error('transaction.to must be defined')
     }
@@ -145,30 +149,30 @@ data                     | ${transaction.data}
 `)
   }
 
-  async validateBalance (
+  async validateBalance(
     signer: string,
     maxFeePerGas: number,
     gasLimit: number,
     signerBalance: string
   ): Promise<BalanceRequiredDetails> {
-    const txCost = toBN(maxFeePerGas).mul(toBN(gasLimit))
-    const isSufficient = txCost.lte(toBN(signerBalance))
+    const txCost = BigInt(maxFeePerGas) * BigInt(gasLimit)
+    const isSufficient = txCost <= BigInt(signerBalance)
     if (!isSufficient) {
       this.logger.warn(`signer ${signer} balance ${signerBalance} too low: tx cost is ${txCost.toString()}`)
       this.logger.warn('Increase \'managerMinBalance\' or \'workerMinBalance\' to avoid this error.' +
         'Warning: There is nothing the Relay Server can do if it does not have sufficient manager balance!')
     }
     return {
-      signer,
+      signer: signer as Address,
       signerBalance,
       isSufficient,
       requiredBalance: txCost.toString()
     }
   }
 
-  async broadcastTransaction (signedTx: string, verifiedTxId: string, nonce: number): Promise<SignedTransactionDetails> {
+  async broadcastTransaction(signedTx: string, verifiedTxId: string, nonce: number): Promise<SignedTransactionDetails> {
     try {
-      const transactionHash = await this.contractInteractor.broadcastTransaction(signedTx)
+      const transactionHash = await this.contractInteractor.broadcastTransaction(signedTx as `0x${string}`)
       if (transactionHash.toLowerCase() !== verifiedTxId.toLowerCase()) {
         throw new Error(`txhash mismatch: from receipt: ${transactionHash} from txstore:${verifiedTxId}`)
       }
@@ -183,7 +187,7 @@ data                     | ${transaction.data}
     }
   }
 
-  async getNonceGapFilled (signer: Address, fromNonce: number, toNonce: number): Promise<ObjectMap<PrefixedHexString>> {
+  async getNonceGapFilled(signer: Address, fromNonce: number, toNonce: number): Promise<ObjectMap<PrefixedHexString>> {
     const nonceGap: ObjectMap<PrefixedHexString> = {}
     const transactions = await this.txStoreManager.getTxsInNonceRange(signer, fromNonce, toNonce)
     for (const transaction of transactions) {
@@ -192,19 +196,19 @@ data                     | ${transaction.data}
     return nonceGap
   }
 
-  async sendTransaction (txDetails: SendTransactionDetails): Promise<SignedTransactionDetails> {
+  async sendTransaction(txDetails: SendTransactionDetails): Promise<SignedTransactionDetails> {
     const encodedCall = txDetails.method?.encodeABI() ?? '0x'
     const maxFeePerGas = parseInt(txDetails.maxFeePerGas ?? (await this.gasPriceFetcher.getGasPrice()).toString())
     const maxPriorityFeePerGas = parseInt(txDetails.maxPriorityFeePerGas ?? maxFeePerGas.toString())
 
     let gasLimit = txDetails.gasLimit
     if (gasLimit == null) {
-      gasLimit = await this.contractInteractor.estimateGas({
+      gasLimit = Number(await this.contractInteractor.estimateGas({
         from: txDetails.signer,
         to: txDetails.destination,
-        data: encodedCall,
-        value: txDetails.value
-      })
+        data: encodedCall as `0x${string}`,
+        value: txDetails.value == null ? undefined : BigInt(txDetails.value)
+      }))
       this.logger.debug(`sendTransaction: gasLimit from estimate: ${gasLimit}`)
     }
     const signerBalance = await this.contractInteractor.getBalance(txDetails.signer)
@@ -271,12 +275,12 @@ data                     | ${transaction.data}
     return await this.broadcastTransaction(signedTransaction.rawTx, storedTx.txId, storedTx.nonce)
   }
 
-  async updateTransactionWithMinedBlock (tx: StoredTransaction, minedBlock: ShortBlockInfo): Promise<void> {
+  async updateTransactionWithMinedBlock(tx: StoredTransaction, minedBlock: ShortBlockInfo): Promise<void> {
     const storedTx: StoredTransaction = Object.assign({}, tx, { minedBlock })
     await this.txStoreManager.putTx(storedTx, true)
   }
 
-  async updateTransactionWithAttempt (
+  async updateTransactionWithAttempt(
     txToUpdate: TypedTransaction,
     tx: StoredTransaction,
     currentBlock: ShortBlockInfo
@@ -294,16 +298,16 @@ data                     | ${transaction.data}
     return storedTx
   }
 
-  async resendTransaction (
+  async resendTransaction(
     tx: StoredTransaction,
     currentBlock: ShortBlockInfo,
     newMaxFee: number,
     newMaxPriorityFee: number,
     isMaxGasPriceReached: boolean): Promise<
-    {
-      signedTransactionDetails?: SignedTransactionDetails
-      balanceRequiredDetails: BalanceRequiredDetails
-    }> {
+      {
+        signedTransactionDetails?: SignedTransactionDetails
+        balanceRequiredDetails: BalanceRequiredDetails
+      }> {
     const signerBalance = await this.contractInteractor.getBalance(tx.from)
     const balanceRequiredDetails = await this.validateBalance(tx.from, newMaxFee, tx.gas, signerBalance.toString())
     if (!balanceRequiredDetails.isSufficient) {
@@ -350,7 +354,7 @@ data                     | ${transaction.data}
     return { signedTransactionDetails, balanceRequiredDetails }
   }
 
-  _resolveNewGasPrice (oldMaxFee: number, oldMaxPriorityFee: number, minMaxPriorityFee: number, minMaxFee: number): { newMaxFee: number, newMaxPriorityFee: number, isMaxGasPriceReached: boolean } {
+  _resolveNewGasPrice(oldMaxFee: number, oldMaxPriorityFee: number, minMaxPriorityFee: number, minMaxFee: number): { newMaxFee: number, newMaxPriorityFee: number, isMaxGasPriceReached: boolean } {
     let isMaxGasPriceReached = false
     let newMaxFee = Math.round(oldMaxFee * this.config.retryGasPriceFactor)
     let newMaxPriorityFee = Math.round(oldMaxPriorityFee * this.config.retryGasPriceFactor)
@@ -376,7 +380,7 @@ data                     | ${transaction.data}
     return { newMaxFee, newMaxPriorityFee, isMaxGasPriceReached }
   }
 
-  async pollNonce (signer: Address): Promise<number> {
+  async pollNonce(signer: Address): Promise<number> {
     const nonce = await this.contractInteractor.getTransactionCount(signer, 'pending')
     if (nonce > this.nonces[signer]) {
       this.logger.warn(`NONCE FIX for signer: ${signer} | new nonce: ${nonce} | wrong nonce: ${this.nonces[signer]}`)
@@ -385,14 +389,14 @@ data                     | ${transaction.data}
     return this.nonces[signer]
   }
 
-  async removeArchivedTransactions (currentBlock: ShortBlockInfo): Promise<unknown> {
+  async removeArchivedTransactions(currentBlock: ShortBlockInfo): Promise<unknown> {
     const upToBlockNumber = currentBlock.number - this.config.dbPruneTxAfterBlocks
     const upToTimestamp = parseInt(currentBlock.timestamp.toString()) - this.config.dbPruneTxAfterSeconds
     this.logger.debug(`removing stored transactions that are older than block number #${upToBlockNumber} and sent before ${upToTimestamp}`)
     return await this.txStoreManager.removeArchivedTransactions(upToBlockNumber, upToTimestamp)
   }
 
-  async fillMinedBlockDetailsForTransactions (currentBlock: ShortBlockInfo): Promise<void> {
+  async fillMinedBlockDetailsForTransactions(currentBlock: ShortBlockInfo): Promise<void> {
     // Load unconfirmed transactions from store, and bail if there are none
     const sortedTxs = await this.txStoreManager.getAll()
     if (sortedTxs.length === 0) {
@@ -430,13 +434,13 @@ data                     | ${transaction.data}
    * This method uses the oldest pending transaction for reference. If it was not mined in a reasonable time,
    * it is boosted. All consequent transactions with gas price lower than that are boosted as well.
    */
-  async boostUnderpricedPendingTransactionsForSigner (
+  async boostUnderpricedPendingTransactionsForSigner(
     signer: string,
     currentBlock: ShortBlockInfo,
     minMaxPriorityFee: number
   ): Promise<BoostingResult> {
     const boostedTransactions = new Map<PrefixedHexString, SignedTransactionDetails>()
-    const nonce = await this.contractInteractor.getTransactionCount(signer)
+    const nonce = await this.contractInteractor.getTransactionCount(signer as Address)
 
     // Load all transactions above currently mined nonce. If it is already mined, the boosting will not affect it.
     const pendingTxs = await this.txStoreManager.getTxsInNonceRange(signer, nonce)
@@ -471,7 +475,7 @@ data                     | ${transaction.data}
       newMaxFee,
       newMaxPriorityFee,
       isMaxGasPriceReached
-    } = this._resolveNewGasPrice(oldestPendingTx.maxFeePerGas, oldestPendingTx.maxPriorityFeePerGas, minMaxPriorityFee, gasFees.baseFeePerGas.toNumber())
+    } = this._resolveNewGasPrice(oldestPendingTx.maxFeePerGas, oldestPendingTx.maxPriorityFeePerGas, minMaxPriorityFee, Number(gasFees.baseFeePerGas))
     for (const transaction of pendingTxs) {
       // The tx is underpriced, boost it
       if (transaction.maxFeePerGas < newMaxFee || transaction.maxPriorityFeePerGas < newMaxPriorityFee) {

@@ -11,7 +11,8 @@ import {
   type PublicClient,
   type WalletClient,
   type Hex,
-  type Address as ViemAddress
+  type Address as ViemAddress,
+  type Abi
 } from 'viem'
 import { mnemonicToAccount, privateKeyToAccount, type PrivateKeyAccount, type HDAccount } from 'viem/accounts'
 import { type GetContractReturnType } from 'viem'
@@ -163,17 +164,13 @@ export class CommandsLogic {
     this.httpClient = new HttpClient(new HttpWrapper(), logger)
     const maxPageSize = Number.MAX_SAFE_INTEGER
     const environment = defaultEnvironment
-    const gasLimitCalculator = new RelayCallGasLimitCalculationHelper(
-      new MainnetCalldataGasEstimation(), environment, logger
-    )
     this.contractInteractor = new ContractInteractor({
       publicClient: this.publicClient,
       walletClient: this.walletClient,
       logger: this.logger,
       deployment,
       maxPageSize,
-      environment,
-      gasLimitCalculator
+      environment
     })
     this.deployment = deployment
   }
@@ -620,11 +617,11 @@ export class CommandsLogic {
       stakingTokenAddress = ttInstance.address
     }
 
-    const stakingTokenContract = await this.contractInteractor._createERC20(stakingTokenAddress ?? '')
+    const stakingTokenContract = await this.contractInteractor._createERC20(stakingTokenAddress ?? '0x')
     const tokenDecimals = await stakingTokenContract.read.decimals()
     const tokenSymbol = await stakingTokenContract.read.symbol()
 
-    const formatToken = (val: any): string => formatTokenAmount(BigInt(val.toString()), Number(tokenDecimals), stakingTokenAddress ?? '', tokenSymbol)
+    const formatToken = (val: any): string => formatTokenAmount(BigInt(val.toString()), Number(tokenDecimals), stakingTokenAddress ?? '0x', tokenSymbol)
 
     this.logger.info(`Setting minimum stake of ${formatToken(deployOptions.minimumTokenStake)}`)
     await rInstance.write.setMinimumStakes([[stakingTokenAddress] as any, [BigInt(deployOptions.minimumTokenStake)] as any], { chain: null, account: options.from as any })

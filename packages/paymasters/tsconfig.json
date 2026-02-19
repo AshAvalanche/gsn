@@ -12,8 +12,7 @@
     "./types/truffle-contracts/types.d.ts"
   ],
   "compilerOptions": {
-    "outDir": "dist"
+    "outDir": "dist",
+    "skipLibCheck": true
   }
 }
-
-

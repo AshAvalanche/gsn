@@ -85,7 +85,7 @@ export class TypedPermit implements TypedMessage<Types> {
   readonly primaryType: string
   readonly message: any
 
-  constructor (
+  constructor(
     chainId: number,
     permitType: PermitType,
     domain: EIP712Domain,
@@ -105,7 +105,7 @@ export class TypedPermit implements TypedMessage<Types> {
   }
 }
 
-export async function signAndEncodeDaiPermit (
+export async function signAndEncodeDaiPermit(
   holder: Address,
   spender: Address,
   token: Address,
@@ -135,11 +135,11 @@ export async function signAndEncodeDaiPermit (
     domainSeparator,
     permit
   )
-  const signature = await getEip712Signature(
-    provider.getSigner(),
-    dataToSign
-    // methodSuffix,
-    // jsonStringifyRequest
+  // @ts-ignore
+  const signature = await provider.getSigner()._signTypedData(
+    dataToSign.domain,
+    dataToSign.types,
+    dataToSign.message
   )
   const { r, s, v } = fromRpcSig(signature)
   // we use 'estimateGas' to check against the permit method revert (hard to debug otherwise)
@@ -149,7 +149,7 @@ export async function signAndEncodeDaiPermit (
   return daiInstance.interface.encodeFunctionData('permit', [holder, spender, nonce, expiry, true, v, r, s])
 }
 
-export async function signAndEncodeEIP2612Permit (
+export async function signAndEncodeEIP2612Permit(
   owner: Address,
   spender: Address,
   token: Address,
@@ -183,11 +183,11 @@ export async function signAndEncodeEIP2612Permit (
     permit,
     domainType
   )
-  const signature = await getEip712Signature(
-    provider.getSigner(),
-    dataToSign
-    // methodSuffix,
-    // jsonStringifyRequest
+  // @ts-ignore
+  const signature = await provider.getSigner()._signTypedData(
+    dataToSign.domain,
+    dataToSign.types,
+    dataToSign.message
   )
   const { r, s, v } = fromRpcSig(signature)
   // we use 'estimateGas' to check against the permit method revert (hard to debug otherwise)

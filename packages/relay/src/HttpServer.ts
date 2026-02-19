@@ -23,7 +23,7 @@ export class HttpServer {
   app: Express
   private serverInstance?: Server
 
-  constructor (
+  constructor(
     private readonly port: number,
     readonly logger: LoggerInterface,
     readonly relayService?: RelayServer,
@@ -59,25 +59,25 @@ export class HttpServer {
     }
   }
 
-  start (): void {
+  start(): void {
     this.serverInstance = this.app.listen(this.port, () => {
       this.logger.info(`Listening on port ${this.port}`)
       this.relayService?.start()
     })
   }
 
-  stop (): void {
+  stop(): void {
     this.serverInstance?.close()
     this.logger.info('Http server stopped.\nShutting down relay...')
   }
 
-  close (): void {
+  close(): void {
     this.logger.info('Stopping relay worker...')
     this.relayService?.stop()
     this.penalizerService?.stop()
   }
 
-  async pingHandler (req: Request, res: Response): Promise<void> {
+  async pingHandler(req: Request, res: Response): Promise<void> {
     if (this.relayService == null) {
       throw new Error('RelayServer not initialized')
     }
@@ -97,7 +97,7 @@ export class HttpServer {
     }
   }
 
-  statsHandler (req: Request, res: Response): void {
+  statsHandler(req: Request, res: Response): void {
     if (this.relayService == null) {
       throw new Error('RelayServer not initialized')
     }
@@ -112,13 +112,13 @@ export class HttpServer {
     }
   }
 
-  async relayHandler (req: Request, res: Response): Promise<void> {
+  async relayHandler(req: Request, res: Response): Promise<void> {
     if (this.relayService == null) {
       throw new Error('RelayServer not initialized')
     }
     try {
       ow(req.body, ow.object.exactShape(RelayTransactionRequestShape))
-      const { signedTx, nonceGapFilled } = await this.relayService.createRelayTransaction(req.body)
+      const { signedTx, nonceGapFilled } = await this.relayService.createRelayTransaction(req.body as any)
       res.send({ signedTx, nonceGapFilled })
     } catch (e: any) {
       const error: string = e.message
@@ -127,7 +127,7 @@ export class HttpServer {
     }
   }
 
-  async auditHandler (req: Request<ParamsDictionary, AuditResponse, AuditRequest>, res: Response<AuditResponse>): Promise<void> {
+  async auditHandler(req: Request<ParamsDictionary, AuditResponse, AuditRequest>, res: Response<AuditResponse>): Promise<void> {
     if (this.penalizerService == null) {
       throw new Error('PenalizerService not initialized')
     }

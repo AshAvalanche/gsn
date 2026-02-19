@@ -3,19 +3,20 @@ import { type JsonRpcProvider, type ExternalProvider } from '@ethersproject/prov
 
 import {
   type Address,
+  Hex,
   type LoggerInterface,
   constants
 } from '@opengsn/common'
-import { type IERC20 } from '@opengsn/contracts'
+
 import {
   type IChainlinkOracle, IChainlinkOracle__factory,
   IERC20__factory,
+  type IERC20,
   type PermitERC20UniswapV3Paymaster,
   PermitERC20UniswapV3Paymaster__factory
 } from '../types/ethers-contracts'
 
 import { wrapInputProviderLike } from '@opengsn/provider'
-import { BigNumber } from 'ethers'
 
 export interface TokenSwapData {
   priceFeed: string
@@ -23,8 +24,8 @@ export interface TokenSwapData {
   uniswapPoolFee: number
   slippage: number
   permitMethodSelector: string
-  priceDivisor: BigNumber
-  validFromBlockNumber: BigNumber
+  priceDivisor: bigint
+  validFromBlockNumber: bigint
 }
 
 export class TokenPaymasterInteractor {
@@ -57,7 +58,16 @@ export class TokenPaymasterInteractor {
   async setToken(tokenAddress: Address): Promise<void> {
     this.tokenAddress = tokenAddress
     this.token = await this._createIERC20Instance(this.tokenAddress)
-    this.tokenSwapData = await this.paymaster.getTokenSwapData(tokenAddress)
+    const data = await this.paymaster.getTokenSwapData(tokenAddress)
+    this.tokenSwapData = {
+      priceFeed: data.priceFeed,
+      reverseQuote: data.reverseQuote,
+      uniswapPoolFee: data.uniswapPoolFee,
+      slippage: data.slippage,
+      permitMethodSelector: data.permitMethodSelector,
+      priceDivisor: BigInt(data.priceDivisor.toString()),
+      validFromBlockNumber: BigInt(data.validFromBlockNumber.toString())
+    }
   }
 
   async _createIERC20Instance(address: Address): Promise<IERC20> {
@@ -72,56 +82,59 @@ export class TokenPaymasterInteractor {
     return IChainlinkOracle__factory.connect(address, this.provider)
   }
 
-  async getAllowance(owner: Address, spender: Address): Promise<BigNumber> {
-    return await this.token.allowance(owner, spender)
+  async getAllowance(owner: Address, spender: Address): Promise<bigint> {
+    const res = await this.token.allowance(owner, spender)
+    return BigInt(res.toString())
   }
 
   async supportedTokens(): Promise<Address[]> {
-    return await this.paymaster.getTokens()
+    return (await this.paymaster.getTokens()) as unknown as Address[]
   }
 
   async isTokenSupported(token: Address): Promise<boolean> {
     return await this.paymaster.isTokenSupported(token)
   }
 
-  async tokenBalanceOf(owner: Address, tokenAddress: Address): Promise<BigNumber> {
+  async tokenBalanceOf(owner: Address, tokenAddress: Address): Promise<bigint> {
     const tokenInstance = await this._createIERC20Instance(tokenAddress)
-    return await tokenInstance.balanceOf(owner)
+    const res = await tokenInstance.balanceOf(owner)
+    return BigInt(res.toString())
   }
 
-  async tokenPaymasterAllowance(owner: Address, tokenAddress: Address): Promise<BigNumber> {
+  async tokenPaymasterAllowance(owner: Address, tokenAddress: Address): Promise<bigint> {
     const tokenInstance = await this._createIERC20Instance(tokenAddress)
-    return await tokenInstance.allowance(owner, this.paymaster.address)
+    const res = await tokenInstance.allowance(owner, this.paymaster.address)
+    return BigInt(res.toString())
   }
 
-  async tokenToWei(tokenAddress: Address, tokenAmount: BigNumber): Promise<{
-    actualQuote: BigNumber
-    amountInWei: BigNumber
+  async tokenToWei(tokenAddress: Address, tokenAmount: bigint): Promise<{
+    actualQuote: bigint
+    amountInWei: bigint
   }> {
     const tokenSwapData = await this.paymaster.getTokenSwapData(tokenAddress)
-    const chainlinkInstance = await this._createChainlinkOracleInstance(tokenSwapData.priceFeed)
+    const chainlinkInstance = await this._createChainlinkOracleInstance(tokenSwapData.priceFeed as Hex)
     const quote = await chainlinkInstance.latestAnswer()
     const description = `(tokenAddress=${tokenAddress} tokenAmount=${tokenAmount.toString()} priceFeed=${tokenSwapData.priceFeed} quote=${quote.toString()} priceDivisor=${tokenSwapData.priceDivisor.toString()} reverseQuote=${tokenSwapData.reverseQuote})`
     this.logger.debug(`Converting token balance to Ether quote ${description}`)
     try {
       const actualQuote = await this.paymaster.toActualQuote(quote.toString(), tokenSwapData.priceDivisor.toString())
       this.logger.debug(`actualQuote=${actualQuote.toString()}`)
-      if (tokenAmount.gt(BigNumber.from(10).pow(30))) {
+      if (tokenAmount > BigInt(10) ** BigInt(30)) {
         this.logger.debug(`Amount to convert is > 1e30 which is infinity in most cases (tokenAddress=${tokenAddress})`)
         return {
-          actualQuote: BigNumber.from(0),
-          amountInWei: BigNumber.from(constants.MAX_UINT256.toString())
+          actualQuote: BigInt(0),
+          amountInWei: BigInt(constants.MAX_UINT256.toString())
         }
       }
       const amountInWei = await this.paymaster.tokenToWei(tokenAmount.toString(), actualQuote.toString(), tokenSwapData.reverseQuote)
       this.logger.debug(`amountInWei=${amountInWei.toString()}`)
-      return { actualQuote, amountInWei }
+      return { actualQuote: actualQuote.toBigInt(), amountInWei: amountInWei.toBigInt() }
     } catch (error: any) {
       this.logger.error(`Failed to convert token balance to Ether quote ${description}`)
       this.logger.error(error)
       return {
-        actualQuote: BigNumber.from(0),
-        amountInWei: BigNumber.from(0)
+        actualQuote: BigInt(0),
+        amountInWei: BigInt(0)
       }
     }
   }

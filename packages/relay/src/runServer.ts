@@ -3,7 +3,7 @@ import fs from 'fs'
 import Web3 from 'web3'
 import chalk from 'chalk'
 import { type JsonRpcPayload, type JsonRpcResponse } from 'web3-core-helpers'
-import { StaticJsonRpcProvider } from '@ethersproject/providers'
+import { createPublicClient, Hex, http, type PublicClient } from 'viem'
 import { HttpServer } from './HttpServer'
 import { RelayServer } from './RelayServer'
 import { KeyManager } from './KeyManager'
@@ -35,12 +35,12 @@ import { ReputationManager, type ReputationManagerConfiguration } from './Reputa
 import { REPUTATION_STORE_FILENAME, ReputationStoreManager } from './ReputationStoreManager'
 import { Web3MethodsBuilder } from './Web3MethodsBuilder'
 
-function error (err: string): never {
+function error(err: string): never {
   console.error(err)
   process.exit(1)
 }
 
-function sanitizeJsonRpcPayload (request: JsonRpcPayload): JsonRpcPayload {
+function sanitizeJsonRpcPayload(request: JsonRpcPayload): JsonRpcPayload {
   // protect original object from modification
   const clone = JSON.parse(JSON.stringify(request))
   const data = clone?.params[0]?.data
@@ -50,7 +50,7 @@ function sanitizeJsonRpcPayload (request: JsonRpcPayload): JsonRpcPayload {
   return clone
 }
 
-function sanitizeJsonRpcResponse (response?: JsonRpcResponse): JsonRpcResponse | undefined {
+function sanitizeJsonRpcResponse(response?: JsonRpcResponse): JsonRpcResponse | undefined {
   if (response == null) {
     return response
   }
@@ -62,11 +62,12 @@ function sanitizeJsonRpcResponse (response?: JsonRpcResponse): JsonRpcResponse |
   return clone
 }
 
-async function run (): Promise<void> {
+async function run(): Promise<void> {
   let config: ServerConfigParams
-  let environment: Environment
   let web3provider
-  let ethersJsonRpcProvider: StaticJsonRpcProvider
+  let ethersJsonRpcProvider_unused // removed
+  let publicClient: PublicClient = null as any
+  let environment: Environment
   let runPenalizer: boolean
   let reputationManagerConfig: Partial<ReputationManagerConfiguration>
   let runPaymasterReputations: boolean
@@ -80,13 +81,15 @@ async function run (): Promise<void> {
     const loggingProvider: LoggingProviderMode = conf.loggingProvider ?? LoggingProviderMode.NONE
     conf.environmentName = conf.environmentName ?? EnvironmentsKeys.ethereumMainnet
     web3provider = new Web3.providers.HttpProvider(conf.ethereumNodeUrl)
-    ethersJsonRpcProvider = new StaticJsonRpcProvider(conf.ethereumNodeUrl)
+    publicClient = createPublicClient({
+      transport: http(conf.ethereumNodeUrl)
+    })
 
     if (loggingProvider !== LoggingProviderMode.NONE) {
       const orig = web3provider
       web3provider = {
         // @ts-ignore
-        send (r, cb) {
+        send(r, cb) {
           const startTimestamp = Date.now()
           switch (loggingProvider) {
             case LoggingProviderMode.DURATION: {
@@ -125,7 +128,7 @@ async function run (): Promise<void> {
       }
     }
     console.log('Resolving server config ...\n');
-    ({ config, environment } = await resolveServerConfig(conf, ethersJsonRpcProvider))
+    ({ config, environment } = await resolveServerConfig(conf, publicClient))
     runPenalizer = config.runPenalizer
     console.log('Resolving reputation manager config...\n')
     reputationManagerConfig = resolveReputationManagerConfig(conf)
@@ -161,25 +164,23 @@ async function run (): Promise<void> {
     ' Using this address for any other purpose may result in loss of funds.'))
   console.log('Creating interactor...\n')
   const contractInteractor = new ContractInteractor({
-    provider: ethersJsonRpcProvider,
-    signer: ethersJsonRpcProvider.getSigner(),
+    publicClient: publicClient,
     logger,
     environment,
     calldataEstimationSlackFactor: config.calldataEstimationSlackFactor,
     maxPageSize: config.pastEventsQueryMaxPageSize,
     versionManager: new VersionsManager(gsnRuntimeVersion, config.requiredVersionRange ?? gsnRequiredVersion),
     deployment: {
-      relayHubAddress: config.relayHubAddress,
-      managerStakeTokenAddress: config.managerStakeTokenAddress
+      relayHubAddress: config.relayHubAddress as Hex,
+      managerStakeTokenAddress: config.managerStakeTokenAddress as Hex
     }
   })
   console.log('Initializing interactor...\n')
   await contractInteractor.init()
   const gasLimitCalculator = new RelayCallGasLimitCalculationHelper(
-    logger,
     contractInteractor,
-    config.calldataEstimationSlackFactor,
-    config.maxAcceptanceBudget
+    environment,
+    logger
   )
   const resolvedDeployment = contractInteractor.getDeployment()
   const web3MethodsBuilder = new Web3MethodsBuilder(new Web3(web3provider as any), resolvedDeployment)

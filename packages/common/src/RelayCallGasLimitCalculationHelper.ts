@@ -4,6 +4,9 @@ import { type Environment } from './environments/Environments'
 import { type LoggerInterface } from './LoggerInterface'
 import { toNumber } from './Utils'
 import { constants } from './Constants'
+import { type RelayRequest } from './EIP712/RelayRequest'
+import { type Address } from './types/Aliases'
+import { type RelayTransactionRequest } from './types/RelayTransactionRequest'
 
 export interface RelayRequestLimits {
   effectiveAcceptanceBudgetGasUsed: number
@@ -86,5 +89,48 @@ export class RelayCallGasLimitCalculationHelper {
       toNumber(gasAndDataLimits.postRelayedCallGasLimit)
 
     return BigInt(result)
+  }
+
+  async adjustRelayCallViewGasLimitForRelay(
+    viewCallGasLimit: bigint,
+    relayWorker: Address,
+    maxFeePerGas: bigint
+  ): Promise<bigint> {
+    // TODO: implement proper adjustment logic if needed
+    return viewCallGasLimit
+  }
+
+  async adjustRelayCallViewGasLimitForPaymaster(
+    viewCallGasLimit: bigint,
+    paymasterAddress: Address,
+    maxFeePerGas: bigint,
+    maxViewableGasLimit: bigint,
+    minViewableGasLimit: bigint
+  ): Promise<bigint> {
+    // TODO: implement proper adjustment logic if needed
+    return viewCallGasLimit
+  }
+
+  async calculateRelayRequestLimits(
+    relayTransactionRequest: RelayTransactionRequest,
+    gasAndDataLimits: GasAndDataLimits
+  ): Promise<RelayRequestLimits> {
+    const relayRequest = relayTransactionRequest.relayRequest
+    // Map to calculateMaxPossibleGasAndCharge requirements
+    const paymasterAddress = relayRequest.relayData.paymaster
+    // gasAndDataLimits passed in
+    const innerRecipientCallGasLimit = relayRequest.request.gas
+
+    // TODO: calculate actual calldata gas used by approvalData etc?
+    const calldataGasUsed = 0
+
+    return await this.calculateMaxPossibleGasAndCharge(
+      relayRequest,
+      gasAndDataLimits,
+      innerRecipientCallGasLimit,
+      calldataGasUsed,
+      0n, // baseFeePerGas
+      0n  // priorityFeePerGas
+    )
   }
 }

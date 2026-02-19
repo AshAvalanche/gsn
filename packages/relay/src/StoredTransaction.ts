@@ -55,20 +55,20 @@ export type StoredTransaction = StoredTransactionSerialized & StoredTransactionM
  * @param tx
  * @param metadata
  */
-export function createStoredTransaction (tx: TypedTransaction, metadata: StoredTransactionMetadata): StoredTransaction {
+export function createStoredTransaction(tx: TypedTransaction, metadata: StoredTransactionMetadata): StoredTransaction {
   if (tx.to == null) {
     throw new Error('tx.to must be defined')
   }
   const details: Partial<StoredTransactionSerialized> =
-    {
-      to: ethUtils.bufferToHex(tx.to.toBuffer()),
-      gas: ethUtils.bufferToInt(tx.gasLimit.toBuffer()),
-      data: ethUtils.bufferToHex(tx.data),
-      nonce: ethUtils.bufferToInt(tx.nonce.toBuffer()),
-      txId: ethUtils.bufferToHex(tx.hash()),
-      value: ethUtils.bufferToHex(tx.value.toBuffer()),
-      rawSerializedTx: ethUtils.bufferToHex(tx.serialize())
-    }
+  {
+    to: ethUtils.bufferToHex(tx.to.toBuffer()) as Address,
+    gas: ethUtils.bufferToInt(tx.gasLimit.toBuffer()),
+    data: ethUtils.bufferToHex(tx.data),
+    nonce: ethUtils.bufferToInt(tx.nonce.toBuffer()),
+    txId: ethUtils.bufferToHex(tx.hash()),
+    value: ethUtils.bufferToHex(tx.value.toBuffer()),
+    rawSerializedTx: ethUtils.bufferToHex(tx.serialize())
+  }
   if (tx.supports(Capability.EIP1559FeeMarket)) {
     tx = tx as FeeMarketEIP1559Transaction
     details.maxFeePerGas = ethUtils.bufferToInt(tx.maxFeePerGas.toBuffer())

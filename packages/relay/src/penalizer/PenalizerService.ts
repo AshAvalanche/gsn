@@ -2,7 +2,9 @@
 import abiDecoder from 'abi-decoder'
 import crypto from 'crypto'
 import { Transaction as EthereumJsTransaction, type TxOptions, type TxData } from '@ethereumjs/tx'
+import Common from '@ethereumjs/common'
 import { type TransactionResponse } from '@ethersproject/providers'
+import { type Address } from '@opengsn/common'
 import { bufferToHex, isZeroAddress, type PrefixedHexString, toBuffer } from 'ethereumjs-util'
 import * as ethUtils from 'ethereumjs-util'
 
@@ -55,7 +57,7 @@ export interface PenalizerDependencies {
   txByNonceService: BlockExplorerInterface
 }
 
-function createWeb3Transaction (transaction: TransactionResponse, rawTxOptions: TxOptions): EthereumJsTransaction {
+function createWeb3Transaction(transaction: TransactionResponse, rawTxOptions: TxOptions): EthereumJsTransaction {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const gasPrice = '0x' + BigInt(transaction.gasPrice!.toString()).toString(16)
   const value = '0x' + BigInt(transaction.value.toString()).toString(16)
@@ -106,7 +108,7 @@ export class PenalizerService {
 
   managerAddress: string
 
-  constructor (params: PenalizerDependencies, logger: LoggerInterface, config: ServerConfigParams) {
+  constructor(params: PenalizerDependencies, logger: LoggerInterface, config: ServerConfigParams) {
     this.transactionManager = params.transactionManager
     this.contractInteractor = params.contractInteractor
     this.web3MethodsBuilder = params.web3MethodsBuilder
@@ -118,7 +120,16 @@ export class PenalizerService {
     this.logger = logger
   }
 
-  async init (startWorker: boolean = true): Promise<void> {
+  getRawTxOptions(): TxOptions {
+    return {
+      common: Common.custom({
+        chainId: Number(this.contractInteractor.chainId),
+        defaultHardfork: 'london'
+      })
+    }
+  }
+
+  async init(startWorker: boolean = true): Promise<void> {
     if (this.initialized) {
       return
     }
@@ -132,13 +143,13 @@ export class PenalizerService {
     this.initialized = true
   }
 
-  stop (): void {
+  stop(): void {
     if (this.workerTask != null) {
       clearInterval(this.workerTask)
     }
   }
 
-  async penalizeRepeatedNonce (req: AuditRequest): Promise<AuditResponse> {
+  async penalizeRepeatedNonce(req: AuditRequest): Promise<AuditResponse> {
     if (!this.initialized) {
       throw new Error('PenalizerService is not initialized')
     }
@@ -149,7 +160,7 @@ export class PenalizerService {
     }
     this.logger.info(`Validating tx ${req.signedTx}`)
     // deserialize the tx
-    const rawTxOptions = this.contractInteractor.getRawTxOptions()
+    const rawTxOptions = this.getRawTxOptions()
     const requestTx = EthereumJsTransaction.fromSerializedTx(toBuffer(req.signedTx), rawTxOptions)
     const validationResult = await this.validateTransaction(requestTx)
     if (!validationResult.valid) {
@@ -167,7 +178,7 @@ export class PenalizerService {
 
     const relayWorker = bufferToHex(requestTx.getSenderAddress().toBuffer())
     // read the relay worker's nonce from blockchain
-    const currentNonce = await this.contractInteractor.getTransactionCount(relayWorker, 'pending')
+    const currentNonce = await this.contractInteractor.getTransactionCount(relayWorker as Address, 'pending')
     // if tx nonce > current nonce, publish tx and await
     // otherwise, get mined tx with same nonce. if equals (up to different gasPrice) to received tx, return.
     // Otherwise, penalize.
@@ -182,11 +193,11 @@ export class PenalizerService {
     }
 
     // run penalize in view mode to see if penalizable
-    const minedTransactionData = await this.txByNonceService.getTransactionByNonce(relayWorker, transactionNonce)
+    const minedTransactionData = await this.txByNonceService.getTransactionByNonce(relayWorker as Address, transactionNonce)
     if (minedTransactionData == null) {
       throw Error(`TxByNonce service failed to fetch tx with nonce ${transactionNonce} of relayer ${relayWorker}`)
     }
-    const minedTx = await this.contractInteractor.getTransaction(minedTransactionData.hash)
+    const minedTx = await this.contractInteractor.getTransaction(minedTransactionData.hash as Address)
     if (minedTx == null) {
       throw Error(`Failed to get transaction ${minedTransactionData.hash} from node`)
     }
@@ -210,13 +221,13 @@ export class PenalizerService {
     return { commitTxHash }
   }
 
-  calculateCommitHash (method: any): PrefixedHexString {
+  calculateCommitHash(method: any): PrefixedHexString {
     const msgData: string = method.encodeABI()
     const msgDataHash = `0x${ethUtils.keccak256(Buffer.from(removeHexPrefix(msgData), 'hex')).toString('hex')}`
     return `0x${ethUtils.keccak256(Buffer.from(removeHexPrefix(msgDataHash + this.managerAddress.slice(2).toLowerCase()), 'hex')).toString('hex')}`
   }
 
-  async intervalHandler (): Promise<PrefixedHexString[]> {
+  async intervalHandler(): Promise<PrefixedHexString[]> {
     if (this.scheduledPenalizations.length === 0) {
       return []
     }
@@ -227,7 +238,7 @@ export class PenalizerService {
     return await this.executeReadyPenalizations()
   }
 
-  async executeReadyPenalizations (): Promise<PrefixedHexString[]> {
+  async executeReadyPenalizations(): Promise<PrefixedHexString[]> {
     const currentBlockNumber = await this.contractInteractor.getBlockNumber()
     const readyPenalizations = this.scheduledPenalizations.filter(it => {
       return it.readyBlockNumber != null && it.readyBlockNumber <= currentBlockNumber
@@ -249,13 +260,13 @@ export class PenalizerService {
   /**
    * Note: this method modifies elements of {@link scheduledPenalizations} in-place
    */
-  async queryReadyBlocksForMinedCommitments (): Promise<void> {
+  async queryReadyBlocksForMinedCommitments(): Promise<void> {
     const unconfirmedPenalizations = this.scheduledPenalizations.filter(it => it.readyBlockNumber === undefined)
     const nonMinedCommitHashes = unconfirmedPenalizations.map(up => up.commitHash)
     if (unconfirmedPenalizations.length > 0) {
       // TODO: sanitize functional stuff
-      const topics = [address2topic(this.managerAddress)]
-      const commitments = await this.contractInteractor.getPastEventsForPenalizer([CommitAdded], topics, { fromBlock: 1 })
+      const topics = [address2topic(this.managerAddress) as Address]
+      const commitments = await this.contractInteractor.getPastEventsForPenalizer([CommitAdded], topics, { fromBlock: 1n })
       const newlyMinedCommitments = commitments
         .filter(it => {
           return nonMinedCommitHashes.includes(it.args.commitHash)
@@ -269,8 +280,8 @@ export class PenalizerService {
     }
   }
 
-  async penalizeIllegalTransaction (req: AuditRequest): Promise<AuditResponse> {
-    const rawTxOptions = this.contractInteractor.getRawTxOptions()
+  async penalizeIllegalTransaction(req: AuditRequest): Promise<AuditResponse> {
+    const rawTxOptions = this.getRawTxOptions()
     const requestTx = EthereumJsTransaction.fromSerializedTx(toBuffer(req.signedTx), rawTxOptions)
     const validationResult = await this.validateTransaction(requestTx)
     if (!validationResult.valid) {
@@ -300,28 +311,28 @@ export class PenalizerService {
     return { commitTxHash }
   }
 
-  async commitAndScheduleReveal (delayedPenalization: DelayedPenalization): Promise<any> {
+  async commitAndScheduleReveal(delayedPenalization: DelayedPenalization): Promise<any> {
     this.scheduledPenalizations.push(delayedPenalization)
     const method = this.web3MethodsBuilder.getPenalizerCommitMethod(delayedPenalization.commitHash)
     return await this.broadcastTransaction('commit', method)
   }
 
-  async executeDelayedPenalization (delayedPenalization: DelayedPenalization): Promise<PrefixedHexString> {
+  async executeDelayedPenalization(delayedPenalization: DelayedPenalization): Promise<PrefixedHexString> {
     const method = this.getMethod(delayedPenalization.type, delayedPenalization.methodArgs)
     return await this.broadcastTransaction(delayedPenalization.type.valueOf(), method)
   }
 
-  async broadcastTransaction (methodName: string, method: any): Promise<PrefixedHexString> {
+  async broadcastTransaction(methodName: string, method: any): Promise<PrefixedHexString> {
     const creationBlockNumber = await this.contractInteractor.getBlockNumber()
     const block = await this.contractInteractor.getBlock(creationBlockNumber)
     const creationBlockTimestamp = toNumber(block.timestamp)
     const serverAction = ServerAction.PENALIZATION
     const { signedTx, transactionHash } = await this.transactionManager.sendTransaction(
       {
-        signer: this.managerAddress,
+        signer: this.managerAddress as Address,
         method,
         destination: this.contractInteractor.penalizerInstance.address,
-        creationBlockNumber,
+        creationBlockNumber: Number(creationBlockNumber),
         creationBlockHash: block.hash,
         creationBlockTimestamp,
         serverAction
@@ -330,27 +341,27 @@ export class PenalizerService {
     return transactionHash
   }
 
-  getPenalizeIllegalTransactionArguments (requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
+  getPenalizeIllegalTransactionArguments(requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
     const chainId = this.contractInteractor.chainId
     const { data, signature } = getDataAndSignature(requestTx, chainId)
     return [
-      data, signature, this.contractInteractor.relayHubInstance.address,
+      data, signature, this.contractInteractor.relayHubInstance.address as Address,
       randomValue
     ]
   }
 
-  getPenalizeRepeatedNonceArguments (minedTx: EthereumJsTransaction, requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
+  getPenalizeRepeatedNonceArguments(minedTx: EthereumJsTransaction, requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
     const chainId = this.contractInteractor.chainId
     const { data: unsignedMinedTx, signature: minedTxSig } = getDataAndSignature(minedTx, chainId)
     const { data: unsignedRequestTx, signature: requestTxSig } = getDataAndSignature(requestTx, chainId)
     return [
       unsignedRequestTx, requestTxSig, unsignedMinedTx,
-      minedTxSig, this.contractInteractor.relayHubInstance.address,
+      minedTxSig, this.contractInteractor.relayHubInstance.address as Address,
       randomValue
     ]
   }
 
-  async validateTransaction (requestTx: EthereumJsTransaction): Promise<{ valid: boolean, error?: string }> {
+  async validateTransaction(requestTx: EthereumJsTransaction): Promise<{ valid: boolean, error?: string }> {
     const txHash = requestTx.hash().toString('hex')
     if (!requestTx.verifySignature()) {
       return {
@@ -359,7 +370,7 @@ export class PenalizerService {
       }
     }
     const relayWorker = bufferToHex(requestTx.getSenderAddress().toBuffer())
-    const relayManager = await this.contractInteractor.relayHubInstance.getWorkerManager(relayWorker)
+    const relayManager = await this.contractInteractor.relayHubInstance.read.getWorkerManager([relayWorker as Address])
     if (isZeroAddress(relayManager)) {
       return {
         valid: false,
@@ -367,7 +378,7 @@ export class PenalizerService {
       }
     }
     try {
-      await this.contractInteractor.relayHubInstance.verifyRelayManagerStaked(relayManager)
+      await this.contractInteractor.relayHubInstance.read.verifyRelayManagerStaked([relayManager])
     } catch (e: any) {
       this.logger.info(e.message)
       return {
@@ -379,12 +390,12 @@ export class PenalizerService {
     return { valid: true }
   }
 
-  async isTransactionMined (requestTx: EthereumJsTransaction): Promise<boolean> {
-    const txFromNode = await this.contractInteractor.getTransaction(bufferToHex(requestTx.hash()))
+  async isTransactionMined(requestTx: EthereumJsTransaction): Promise<boolean> {
+    const txFromNode = await this.contractInteractor.getTransaction(bufferToHex(requestTx.hash()) as Address)
     return txFromNode != null
   }
 
-  async validatePenalization (method: any): Promise<{ valid: boolean, error?: string }> {
+  async validatePenalization(method: any): Promise<{ valid: boolean, error?: string }> {
     try {
       const res = await method.call({
         from: constants.BURN_ADDRESS
@@ -403,7 +414,7 @@ export class PenalizerService {
     }
   }
 
-  getMethod (penalizationTypes: PenalizationTypes, methodArgs: PrefixedHexString[]): any {
+  getMethod(penalizationTypes: PenalizationTypes, methodArgs: PrefixedHexString[]): any {
     switch (penalizationTypes) {
       case PenalizationTypes.REPEATED_NONCE:
         return this.web3MethodsBuilder.getPenalizeRepeatedNonceMethod(...methodArgs)
