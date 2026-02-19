@@ -3,7 +3,7 @@ import fs from 'fs'
 import Web3 from 'web3'
 import chalk from 'chalk'
 import { type JsonRpcPayload, type JsonRpcResponse } from 'web3-core-helpers'
-import { createPublicClient, Hex, http, type PublicClient } from 'viem'
+import { createPublicClient, createWalletClient, Hex, http, publicActions, type PublicClient, type WalletClient, type PublicActions, type WalletActions, type Client } from 'viem'
 import { HttpServer } from './HttpServer'
 import { RelayServer } from './RelayServer'
 import { KeyManager } from './KeyManager'
@@ -66,7 +66,7 @@ async function run(): Promise<void> {
   let config: ServerConfigParams
   let web3provider
   let ethersJsonRpcProvider_unused // removed
-  let publicClient: PublicClient = null as any
+  let client: Client & PublicActions & WalletActions = null as any
   let environment: Environment
   let runPenalizer: boolean
   let reputationManagerConfig: Partial<ReputationManagerConfiguration>
@@ -81,9 +81,9 @@ async function run(): Promise<void> {
     const loggingProvider: LoggingProviderMode = conf.loggingProvider ?? LoggingProviderMode.NONE
     conf.environmentName = conf.environmentName ?? EnvironmentsKeys.ethereumMainnet
     web3provider = new Web3.providers.HttpProvider(conf.ethereumNodeUrl)
-    publicClient = createPublicClient({
+    client = createWalletClient({
       transport: http(conf.ethereumNodeUrl)
-    })
+    }).extend(publicActions)
 
     if (loggingProvider !== LoggingProviderMode.NONE) {
       const orig = web3provider
@@ -128,7 +128,7 @@ async function run(): Promise<void> {
       }
     }
     console.log('Resolving server config ...\n');
-    ({ config, environment } = await resolveServerConfig(conf, publicClient))
+    ({ config, environment } = await resolveServerConfig(conf, client))
     runPenalizer = config.runPenalizer
     console.log('Resolving reputation manager config...\n')
     reputationManagerConfig = resolveReputationManagerConfig(conf)
@@ -164,7 +164,7 @@ async function run(): Promise<void> {
     ' Using this address for any other purpose may result in loss of funds.'))
   console.log('Creating interactor...\n')
   const contractInteractor = new ContractInteractor({
-    publicClient: publicClient,
+    client,
     logger,
     environment,
     calldataEstimationSlackFactor: config.calldataEstimationSlackFactor,

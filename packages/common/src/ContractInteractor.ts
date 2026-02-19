@@ -25,7 +25,10 @@ import {
   encodeAbiParameters,
   decodeAbiParameters,
   parseEventLogs,
-  numberToHex
+  numberToHex,
+  type Client,
+  type PublicActions,
+  type WalletActions
 } from 'viem'
 
 import { type RelayRequest } from './EIP712/RelayRequest'
@@ -93,8 +96,7 @@ export interface FilterBlocks {
 }
 
 export interface ConstructorParams {
-  walletClient?: WalletClient
-  publicClient: PublicClient
+  client: Client & PublicActions & WalletActions
   logger: LoggerInterface
   versionManager?: VersionsManager
   deployment?: GSNContractsDeployment
@@ -154,8 +156,7 @@ export class ContractInteractor {
   erc20Token!: GsnContract<typeof ierc20TokenAbi>
 
   readonly calculateCalldataGasUsed: CalldataGasEstimation
-  readonly publicClient: PublicClient
-  readonly walletClient?: WalletClient
+  readonly client: Client & PublicActions & WalletActions
 
   private deployment: GSNContractsDeployment
   private readonly versionManager: VersionsManager
@@ -176,8 +177,7 @@ export class ContractInteractor {
     {
       maxPageSize,
       maxPageCount,
-      publicClient,
-      walletClient,
+      client,
       versionManager,
       logger,
       environment,
@@ -190,8 +190,7 @@ export class ContractInteractor {
     this.logger = logger
     this.versionManager = versionManager ?? new VersionsManager(gsnRuntimeVersion, gsnRequiredVersion)
     this.deployment = deployment
-    this.publicClient = publicClient
-    this.walletClient = walletClient
+    this.client = client
     this.calldataEstimationSlackFactor = calldataEstimationSlackFactor ?? 1
     this.environment = environment
     this.gasLimitCalculator = new RelayCallGasLimitCalculationHelper(this, environment, logger)
@@ -208,7 +207,7 @@ export class ContractInteractor {
     this.logger.debug('interactor init start')
 
     try {
-      await this.publicClient.getFeeHistory({ blockCount: 1, rewardPercentiles: [50] })
+      await this.client.getFeeHistory({ blockCount: 1, rewardPercentiles: [50] })
       this.transactionType = TransactionType.TYPE_TWO
       this.logger.debug('RPC node supports \'eth_feeHistory\'. Initializing to Type 2 Transactions.')
     } catch (e: any) {
@@ -216,8 +215,8 @@ export class ContractInteractor {
       this.transactionType = TransactionType.LEGACY
     }
 
-    if (this.walletClient?.account) {
-      this.logger.info(`Initializing for address ${this.walletClient.account.address}`)
+    if (this.client?.account) {
+      this.logger.info(`Initializing for address ${this.client.account.address}`)
     }
 
     await this._resolveDeployment()
@@ -232,7 +231,7 @@ export class ContractInteractor {
   }
 
   async _initializeNetworkParams(): Promise<void> {
-    this.chainId = await this.publicClient.getChainId()
+    this.chainId = await this.client.getChainId()
   }
 
   async _resolveDeployment(): Promise<void> {
@@ -383,40 +382,40 @@ export class ContractInteractor {
   }
 
   _createRecipient(address: Address): GsnContract<typeof ierc2771RecipientAbi> {
-    return getContract({ address, abi: ierc2771RecipientAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: ierc2771RecipientAbi, client: this.client }) as any
   }
 
   _createPaymaster(address: Address): GsnContract<typeof iPaymasterAbi> {
-    return getContract({ address, abi: iPaymasterAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iPaymasterAbi, client: this.client }) as any
   }
 
   _createRelayHub(address: Address): GsnContract<typeof iRelayHubAbi> {
-    return getContract({ address, abi: iRelayHubAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iRelayHubAbi, client: this.client }) as any
   }
 
   _createForwarder(address: Address): GsnContract<typeof iForwarderAbi> {
-    return getContract({ address, abi: iForwarderAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iForwarderAbi, client: this.client }) as any
 
   }
 
   _createStakeManager(address: Address): GsnContract<typeof iStakeManagerAbi> {
-    return getContract({ address, abi: iStakeManagerAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iStakeManagerAbi, client: this.client }) as any
   }
 
   _createPenalizer(address: Address): GsnContract<typeof iPenalizerAbi> {
-    return getContract({ address, abi: iPenalizerAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iPenalizerAbi, client: this.client }) as any
   }
 
   _createRelayRegistrar(address: Address): GsnContract<typeof iRelayRegistrarAbi> {
-    return getContract({ address, abi: iRelayRegistrarAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: iRelayRegistrarAbi, client: this.client }) as any
   }
 
   _createERC20(address: Address): GsnContract<typeof ierc20TokenAbi> {
-    return getContract({ address, abi: ierc20TokenAbi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi: ierc20TokenAbi, client: this.client }) as any
   }
 
   _createContract(address: Address, abi: Abi): GsnContract<Abi> {
-    return getContract({ address, abi, client: { public: this.publicClient, wallet: this.walletClient } }) as any
+    return getContract({ address, abi, client: this.client }) as any
   }
 
   async getTokenBalanceFormatted(address: Address): Promise<string> {
@@ -464,7 +463,7 @@ export class ContractInteractor {
   }
 
   async getBlockGasLimit(): Promise<number> {
-    const latestBlock = await this.publicClient.getBlock({ blockTag: 'latest' })
+    const latestBlock = await this.client.getBlock({ blockTag: 'latest' })
     if (latestBlock == null) {
       throw new Error('Failed to query "getBlock", crashing.')
     }
@@ -512,7 +511,7 @@ export class ContractInteractor {
         blockTag: 'latest'
       }
 
-      const result = await this.publicClient.call(callArgs)
+      const result = await this.client.call(callArgs)
 
       // The call succeeded (didn't revert itself), but we need to check the return values
       // decode: success (bool), ret (bytes)
@@ -693,7 +692,7 @@ export class ContractInteractor {
   async _getPastEvents(contract: any, names: EventName[], extraTopics: Array<Hex | Hex[] | null>, options: FilterBlocks): Promise<EventData[]> {
     const eventsAbi = contract.abi.filter((item: any) => item.type === 'event' && names.includes(item.name))
 
-    const logs = await this.publicClient.getLogs({
+    const logs = await this.client.getLogs({
       address: contract.address,
       fromBlock: options.fromBlock as bigint,
       toBlock: options.toBlock as bigint,
@@ -708,11 +707,11 @@ export class ContractInteractor {
   }
 
   async getBalance(address: Address, defaultBlock: any = 'latest'): Promise<bigint> {
-    return await this.publicClient.getBalance({ address, blockTag: defaultBlock })
+    return await this.client.getBalance({ address, blockTag: defaultBlock })
   }
 
   async getBlockNumberRightNow(): Promise<bigint> {
-    return await this.publicClient.getBlockNumber()
+    return await this.client.getBlockNumber()
   }
 
   async getBlockNumber(): Promise<bigint> {
@@ -738,11 +737,11 @@ export class ContractInteractor {
   }
 
   async sendSignedTransaction(rawTx: Hex): Promise<Hex> {
-    return await this.walletClient!.sendRawTransaction({ serializedTransaction: rawTx })
+    return await this.client!.sendRawTransaction({ serializedTransaction: rawTx })
   }
 
   async estimateGas(transactionDetails: any): Promise<bigint> {
-    return await this.publicClient.estimateGas({
+    return await this.client.estimateGas({
       account: transactionDetails.from,
       to: transactionDetails.to,
       data: transactionDetails.data,
@@ -752,7 +751,7 @@ export class ContractInteractor {
 
   async estimateInnerCallGasLimit(gsnTransactionDetails: GsnTransactionDetails): Promise<bigint> {
     const originalGasEstimation = await this.estimateGas(gsnTransactionDetails)
-    const calldataGasCost = await this.calculateCalldataGasUsed(gsnTransactionDetails.data as Hex, this.environment, 1, this.publicClient)
+    const calldataGasCost = await this.calculateCalldataGasUsed(gsnTransactionDetails.data as Hex, this.environment, 1, this.client)
     const adjustedEstimation = originalGasEstimation - BigInt(calldataGasCost)
     if (adjustedEstimation < 0n) {
       throw new Error(`estimateGasWithoutCalldata: calldataGasCost(${calldataGasCost}) exceeded originalGasEstimation(${originalGasEstimation})`)
@@ -793,7 +792,7 @@ export class ContractInteractor {
       approvalData,
       maxAcceptanceBudget
     })
-    const calculatedCalldataGasUsed = await this.calculateCalldataGasUsed(encodedData, this.environment, this.calldataEstimationSlackFactor, this.publicClient)
+    const calculatedCalldataGasUsed = await this.calculateCalldataGasUsed(encodedData, this.environment, this.calldataEstimationSlackFactor, this.client)
     return `0x${calculatedCalldataGasUsed.toString(16)}`
   }
 
@@ -808,7 +807,7 @@ export class ContractInteractor {
   }
 
   async getGasPrice(): Promise<bigint> {
-    const gasPriceFromNode = await this.publicClient.getGasPrice()
+    const gasPriceFromNode = await this.client.getGasPrice()
     if (!this.environment.getGasPriceFactor) {
       return gasPriceFromNode
     }
@@ -816,7 +815,7 @@ export class ContractInteractor {
   }
 
   async getFeeHistory(blockCount: any, lastBlock: any, rewardPercentiles: number[]): Promise<FeeHistoryResult> {
-    const history = await this.publicClient.getFeeHistory({
+    const history = await this.client.getFeeHistory({
       blockCount: Number(blockCount),
       blockTag: lastBlock,
       rewardPercentiles
@@ -841,20 +840,20 @@ export class ContractInteractor {
   }
 
   async getTransactionCount(address: Address, defaultBlock?: any): Promise<number> {
-    return await this.publicClient.getTransactionCount({ address, blockTag: defaultBlock })
+    return await this.client.getTransactionCount({ address, blockTag: defaultBlock })
   }
 
   async getTransaction(transactionHash: Hex): Promise<any | null> {
-    return await this.publicClient.getTransaction({ hash: transactionHash })
+    return await this.client.getTransaction({ hash: transactionHash })
   }
 
   async getBlock(blockHashOrBlockNumber: any): Promise<any> {
     if (typeof blockHashOrBlockNumber === 'string' && blockHashOrBlockNumber.startsWith('0x')) {
       if (blockHashOrBlockNumber.length === 66) {
-        return await this.publicClient.getBlock({ blockHash: blockHashOrBlockNumber as Hex })
+        return await this.client.getBlock({ blockHash: blockHashOrBlockNumber as Hex })
       }
     }
-    return await this.publicClient.getBlock({ blockTag: blockHashOrBlockNumber })
+    return await this.client.getBlock({ blockTag: blockHashOrBlockNumber })
   }
 
   validateAddress(address: string, exceptionTitle = 'invalid address:'): void {
@@ -862,7 +861,7 @@ export class ContractInteractor {
   }
 
   async getCode(address: Address): Promise<Hex | undefined> {
-    return await this.publicClient.getBytecode({ address })
+    return await this.client.getBytecode({ address })
   }
 
   async isContractDeployed(address: Address): Promise<boolean> {
@@ -884,6 +883,7 @@ export class ContractInteractor {
 
   async getStakeInfo(managerAddress: Address): Promise<StakeInfo> {
     const result = await this.stakeManagerInstance.read.getStakeInfo([managerAddress])
+    console.log('StakeInfo', result)
     return result as unknown as StakeInfo
   }
 
@@ -909,18 +909,18 @@ export class ContractInteractor {
   }
 
   async broadcastTransaction(signedTransaction: Hex): Promise<Hex> {
-    return await this.publicClient.sendRawTransaction({ serializedTransaction: signedTransaction })
+    return await this.client.sendRawTransaction({ serializedTransaction: signedTransaction })
   }
 
   async hubDepositFor(paymaster: Address, transactionDetails: any): Promise<Hex> {
-    return await this.walletClient!.writeContract({
+    return await this.client!.writeContract({
       address: this.relayHubInstance.address,
       abi: this.relayHubInstance.abi,
       functionName: 'depositFor',
       args: [paymaster],
       value: transactionDetails.value ? BigInt(transactionDetails.value) : 0n,
       chain: null,
-      account: this.walletClient?.account ?? null
+      account: this.client?.account ?? null
     })
   }
 

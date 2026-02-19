@@ -4,7 +4,7 @@ import { type ExternalProvider, JsonRpcProvider, type JsonRpcSigner, Web3Provide
 import { type Signer } from '@ethersproject/abstract-signer'
 import { type JsonRpcApiProvider as ProviderEthersV6, type Signer as SignerEthersV6 } from 'ethers-v6'
 import { type PrefixedHexString, toBuffer } from 'ethereumjs-util'
-import { createPublicClient, createWalletClient, custom, type Hash, type Hex } from 'viem'
+import { createPublicClient, createWalletClient, custom, publicActions, type Hash, type Hex } from 'viem'
 import { type Transaction, parse, serialize } from '@ethersproject/transactions'
 import { BigNumber } from '@ethersproject/bignumber'
 
@@ -338,10 +338,10 @@ export class RelayClient {
 
   async _isAlreadySubmitted(txHash: Hex): Promise<boolean> {
     const [txMinedReceipt, pendingBlock] = await Promise.all([
-      this.dependencies.contractInteractor.publicClient.getTransactionReceipt({ hash: txHash }),
+      this.dependencies.contractInteractor.client.getTransactionReceipt({ hash: txHash }),
       // mempool transactions
       // ethers.js does not really support 'pending' block yet
-      this.dependencies.contractInteractor.publicClient.getBlock()
+      this.dependencies.contractInteractor.client.getBlock()
     ])
 
     if (txMinedReceipt != null) {
@@ -792,19 +792,14 @@ export class RelayClient {
         return await this.wrappedUnderlyingProvider.send(method, params ?? [])
       }
     })
-    const publicClient = createPublicClient({
-      transport,
-      chain: undefined
-    })
     const account = await this.wrappedUnderlyingSigner.getAddress() as Address
     const walletClient = createWalletClient({
       transport,
       account
-    })
+    }).extend(publicActions)
     const contractInteractor = overrideDependencies?.contractInteractor ??
       await new ContractInteractor({
-        publicClient,
-        walletClient,
+        client: walletClient,
         versionManager,
         logger: this.logger,
         maxPageSize: this.config.pastEventsQueryMaxPageSize,

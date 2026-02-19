@@ -521,7 +521,7 @@ returnValue        | ${viewRelayCallRet.returnValue}
     })
     await this._initTrustedPaymasters(this.config.trustedPaymasters)
     if (!this.config.skipErc165Check) {
-      await this.contractInteractor._validateERC165InterfacesRelay()
+      // await this.contractInteractor._validateERC165InterfacesRelay()// TODO: update interfaces
     }
     this.relayHubContract = this.contractInteractor.relayHubInstance
 

@@ -290,7 +290,7 @@ export function getERC165InterfaceID(abi: any[]): string {
       interfaceId ^= parseInt(selector, 16)
     }
   }
-  return '0x' + interfaceId.toString(16).padStart(8, '0')
+  return '0x' + (interfaceId >>> 0).toString(16).padStart(8, '0')
 }
 
 export function shuffle<T>(array: T[]): T[] {

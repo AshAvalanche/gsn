@@ -1,5 +1,5 @@
 
-import { type Address, type Hex, type Log, type PublicClient } from 'viem'
+import { Client, PublicActions, type Address, type Hex, type Log, type PublicClient } from 'viem'
 
 import { type PingResponse } from '../PingResponse'
 import { type RelayRequest } from '../EIP712/RelayRequest'
@@ -34,7 +34,7 @@ export type SignTypedDataCallback = (domain: any, types: any, value: any, from: 
  * Note that both Relay Client and Relay Server must come to the same number.
  * Also, this value does include the base transaction cost (2100 on mainnet).
  */
-export type CalldataGasEstimation = (calldata: Hex, environment: Environment, calldataEstimationSlackFactor: number, client: PublicClient) => Promise<bigint>
+export type CalldataGasEstimation = (calldata: Hex, environment: Environment, calldataEstimationSlackFactor: number, client: Client & PublicActions) => Promise<bigint>
 
 export type RelayFilter = (registrarRelayInfo: RegistrarRelayInfo) => boolean
 

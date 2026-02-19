@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import parseArgs from 'minimist'
 
-import { type PublicClient } from 'viem'
+import { type PublicClient, type Client, type PublicActions, type WalletActions } from 'viem'
 
 import {
   type Address,
@@ -541,7 +541,7 @@ export function parseServerConfig(args: string[], env: any): any {
 }
 
 // resolve params, and validate the resulting struct
-export async function resolveServerConfig(config: Partial<ServerConfigParams>, publicClient: PublicClient): Promise<{
+export async function resolveServerConfig(config: Partial<ServerConfigParams>, client: Client & PublicActions & WalletActions): Promise<{
   config: ServerConfigParams
   environment: Environment
 }> {
@@ -561,7 +561,7 @@ export async function resolveServerConfig(config: Partial<ServerConfigParams>, p
   const contractInteractor: ContractInteractor = new ContractInteractor({
     maxPageSize: config.pastEventsQueryMaxPageSize ?? Number.MAX_SAFE_INTEGER,
     calldataEstimationSlackFactor: config.calldataEstimationSlackFactor ?? 1,
-    publicClient,
+    client,
     logger,
     deployment: {
       relayHubAddress: config.relayHubAddress as Address

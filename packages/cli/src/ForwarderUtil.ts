@@ -1,12 +1,12 @@
-import { type WalletClient, type PublicClient, type Address, type Hex, type Account } from 'viem'
+import { type WalletClient, type PublicClient, type Address, type Hex, type Account, type Client, type PublicActions, type WalletActions } from 'viem'
 import { GsnDomainSeparatorType, GsnRequestType, type LoggerInterface } from '@opengsn/common'
 
 export async function registerForwarderForGsn(
   domainSeparatorName: string,
   forwarderAddress: Address,
   forwarderAbi: any[],
-  walletClient: WalletClient,
-  publicClient: PublicClient,
+  walletClient: Client & PublicActions & WalletActions,
+  publicClient: Client & PublicActions & WalletActions,
   logger?: LoggerInterface,
   from?: Address | Account
 ): Promise<void> {

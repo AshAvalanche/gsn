@@ -2,7 +2,7 @@
 import { type CalldataGasEstimation, type Hex, type Address } from '../types/Aliases'
 import { type Environment } from './Environments'
 import { constants } from '../Constants'
-import { type PublicClient } from 'viem'
+import { type Client, type PublicActions } from 'viem'
 
 /**
  * In most L2s, the cost of the transaction is dynamic and depends on L1 gas price.
@@ -13,7 +13,7 @@ export const AsyncZeroAddressCalldataGasEstimation: CalldataGasEstimation = asyn
   calldata: Hex,
   environment: Environment,
   calldataEstimationSlackFactor: number,
-  client: PublicClient
+  client: Client & PublicActions
 ): Promise<bigint> => {
   const estimateGasCallToZero = await client.estimateGas({
     to: constants.ZERO_ADDRESS as Address,
