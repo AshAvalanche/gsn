@@ -435,9 +435,9 @@ returnValue        | ${viewRelayCallRet.returnValue}
       serverAction: ServerAction.RELAY_CALL,
       method,
       destination: req.metadata.relayHubAddress,
-      gasLimit: maxPossibleGas,
-      creationBlockNumber: currentBlock.number,
-      creationBlockHash: currentBlock.hash,
+      gasLimit: parseInt(maxPossibleGas.toString()),
+      creationBlockNumber: Number(currentBlock.number),
+      creationBlockHash: currentBlock.hash as string,
       creationBlockTimestamp: currentBlockTimestamp,
       maxFeePerGas: req.relayRequest.relayData.maxFeePerGas,
       maxPriorityFeePerGas: req.relayRequest.relayData.maxPriorityFeePerGas
@@ -445,7 +445,7 @@ returnValue        | ${viewRelayCallRet.returnValue}
     const { signedTx, nonce } = await this.transactionManager.sendTransaction(details)
     const nonceGapFilled = await this.transactionManager.getNonceGapFilled(this.workerAddress, req.metadata.relayLastKnownNonce, nonce - 1)
     // after sending a transaction is a good time to check the worker's balance, and replenish it.
-    await this.replenishServer(0, currentBlock.number, currentBlock.hash, currentBlockTimestamp)
+    await this.replenishServer(0, Number(currentBlock.number), currentBlock.hash as string, currentBlockTimestamp)
     return { signedTx, nonceGapFilled }
   }
 
@@ -647,11 +647,11 @@ latestBlock timestamp   | ${latestBlock.timestamp}
   async intervalHandler(): Promise<void> {
     try {
       const block = await this.contractInteractor.getBlock('latest')
-      if (block.number > this.lastScannedBlock) {
+      if (Number(block.number) > this.lastScannedBlock) {
         await this._worker(block)
           .then((transactions) => {
             if (transactions.length !== 0) {
-              this.logger.debug(`Done handling block #${block.number}. Created ${transactions.length} transactions.`)
+              this.logger.debug(`Done handling block #${Number(block.number)}. Created ${transactions.length} transactions.`)
             }
           })
       }
@@ -675,15 +675,15 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     if (!this.initialized) {
       throw new Error('Please run init() first')
     }
-    if (block.number <= this.lastScannedBlock) {
+    if (Number(block.number) <= this.lastScannedBlock) {
       throw new Error('Attempt to scan older block, aborting')
     }
-    if (!this._shouldRefreshState(block)) {
+    if (!this.isReady()) {
       return []
     }
     const currentBlockTimestamp = Number(block.timestamp)
-    await this.withdrawToOwnerIfNeeded(block.number, block.hash, currentBlockTimestamp)
-    this.lastRefreshBlock = block.number
+    await this.withdrawToOwnerIfNeeded(Number(block.number), block.hash as string, currentBlockTimestamp)
+    this.lastRefreshBlock = Number(block.number)
     await this._refreshGasFees()
     const isManagerBalanceReady = await this._refreshAndCheckBalances()
     if (!isManagerBalanceReady) {
@@ -752,7 +752,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     let transactionHashes: PrefixedHexString[] = []
     const hubEventsSinceLastScan = await this.getAllHubEventsSinceLastScan()
     const shouldRegisterAgain =
-      await this._shouldRegisterAgain(currentBlock.number, currentBlockTimestamp)
+      await this._shouldRegisterAgain(Number(currentBlock.number), currentBlockTimestamp)
     transactionHashes = transactionHashes.concat(
       await this.registrationManager.handlePastEvents(
         hubEventsSinceLastScan, this.lastScannedBlock, currentBlock, currentBlockTimestamp, shouldRegisterAgain))
@@ -768,7 +768,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
       BigInt(requiredWorkerBalance) > BigInt(this.config.workerTargetBalance.toString())) {
       this.logger.error(`Server configuration problem! Even after the worker is replenished (workerTargetBalance=${this.config.workerTargetBalance}) boosting the next transaction will fail (requiredWorkerBalance=${requiredWorkerBalance}).`)
     }
-    this.lastScannedBlock = currentBlock.number
+    this.lastScannedBlock = Number(currentBlock.number)
     const isRegistered = await this.registrationManager.isRegistered()
     if (!isRegistered) {
       this.logger.debug('Not registered yet')
@@ -777,7 +777,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     }
     await this.handlePastHubEvents(currentBlock, hubEventsSinceLastScan)
     const workerIndex = 0
-    transactionHashes = transactionHashes.concat(await this.replenishServer(workerIndex, currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+    transactionHashes = transactionHashes.concat(await this.replenishServer(workerIndex, Number(currentBlock.number), currentBlock.hash as string, currentBlockTimestamp))
     await this._refreshAndCheckBalances()
     this.setReadyState(true)
     if (this.alerted && this.alertedByTransactionBlockTimestamp + this.config.alertedDelaySeconds < currentBlockTimestamp) {
@@ -825,7 +825,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
   }
 
   _shouldRefreshState(currentBlock: Block): boolean {
-    return currentBlock.number - this.lastRefreshBlock >= this.config.refreshStateTimeoutBlocks || !this.isReady()
+    return Number(currentBlock.number) - this.lastRefreshBlock >= this.config.refreshStateTimeoutBlocks || !this.isReady()
   }
 
   async handlePastHubEvents(currentBlock: Block, hubEventsSinceLastScan: EventData[]): Promise<void> {

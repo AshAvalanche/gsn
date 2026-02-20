@@ -3,11 +3,13 @@ pragma solidity ^0.8.25;
 pragma abicoder v2;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import "./TestPaymasterEverythingAccepted.sol";
 
 contract TestPaymasterOwnerSignature is TestPaymasterEverythingAccepted {
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     /**
      * @notice This demonstrates how dapps can provide an off-chain signatures to relayed transactions.
@@ -17,18 +19,13 @@ contract TestPaymasterOwnerSignature is TestPaymasterEverythingAccepted {
         bytes calldata signature,
         bytes calldata approvalData,
         uint256 maxPossibleGas
-    )
-    internal
-    view
-    override
-    returns (bytes memory, bool) {
+    ) internal view override returns (bytes memory, bool) {
         (signature, maxPossibleGas);
 
-        address signer =
-            keccak256(abi.encodePacked("I approve", relayRequest.request.from))
-            .toEthSignedMessageHash()
-            .recover(approvalData);
+        address signer = keccak256(
+            abi.encodePacked("I approve", relayRequest.request.from)
+        ).toEthSignedMessageHash().recover(approvalData);
         require(signer == owner(), "test: not approved");
-        return ("",false);
+        return ("", false);
     }
 }

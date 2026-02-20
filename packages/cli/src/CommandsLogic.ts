@@ -288,9 +288,9 @@ export class CommandsLogic {
       await this.contractInteractor._resolveDeploymentFromRelayHub(relayHubAddress)
 
       const relayHub = this.contractInteractor.relayHubInstance
-      const stakeManagerAddress = await relayHub.read.getStakeManager()
+      console.log("relayHub.read?", !!relayHub.read); const stakeManagerAddress = await relayHub.read.getStakeManager()
       const stakeManager = await this.contractInteractor._createStakeManager(stakeManagerAddress)
-      const { stake, unstakeDelay, owner, token } = (await stakeManager.read.getStakeInfo([relayAddress as Address]) as any)
+      const { stake, unstakeDelay, owner, token } = await this.contractInteractor.getStakeInfo(relayAddress as Address)
 
       let stakingToken = options.token
       if (stakingToken == null) {
@@ -301,7 +301,7 @@ export class CommandsLogic {
         throw new Error(`Cannot use token ${stakingToken}. Relayer already uses token: ${token}`)
       }
       const stakingTokenContract = await this.contractInteractor._createERC20(stakingToken)
-      const tokenDecimals = await stakingTokenContract.read.decimals()
+      console.log("stakingTokenContract.read?", !!stakingTokenContract.read); const tokenDecimals = await stakingTokenContract.read.decimals()
       const tokenSymbol = await stakingTokenContract.read.symbol()
 
       const stakeParam = BigInt(Math.floor(toNumber(options.stake) * Math.pow(10, Number(tokenDecimals))))
@@ -334,7 +334,7 @@ export class CommandsLogic {
         while (true) {
           this.logger.debug(`Waiting ${options.sleepMs}ms ${i}/${options.sleepCount} for relayer to set ${options.from} as owner`)
           await sleep(options.sleepMs)
-          const newStakeInfo = (await stakeManager.read.getStakeInfo([relayAddress as any]) as any)
+          const newStakeInfo = await this.contractInteractor.getStakeInfo(relayAddress as Address)
           if (newStakeInfo.owner !== constants.ZERO_ADDRESS && isSameAddress(newStakeInfo.owner, options.from)) {
             this.logger.info('RelayServer successfully set its owner on the StakeManager')
             break
@@ -344,12 +344,12 @@ export class CommandsLogic {
           }
         }
       }
-      if (unstakeDelay.gte(options.unstakeDelay) &&
-        stake.gte(stakeParam.toString())
+      if (unstakeDelay >= BigInt(options.unstakeDelay.toString()) &&
+        stake >= stakeParam
       ) {
         this.logger.info('Relayer already staked')
       } else {
-        const config = (await relayHub.read.getConfiguration()) as any
+        console.log("relayHub.read before config?", !!relayHub.read); const config = (await relayHub.read.getConfiguration()) as any
         const minimumStakeForToken = await relayHub.read.getMinimumStakePerToken([stakingToken as any]) as bigint
         if (minimumStakeForToken > BigInt(stakeParam.toString())) {
           throw new Error(`Given stake ${formatToken(stakeParam)} too low for the given hub ${formatToken(minimumStakeForToken)} and token ${stakingToken}`)
@@ -357,7 +357,7 @@ export class CommandsLogic {
         if (minimumStakeForToken === 0n) {
           throw new Error(`Selected token (${stakingToken}) is not allowed in the current RelayHub`)
         }
-        if (config.minimumUnstakeDelay.gt(options.unstakeDelay)) {
+        if (BigInt(config.minimumUnstakeDelay.toString()) > BigInt(options.unstakeDelay.toString())) {
           throw new Error(`Given minimum unstake delay ${options.unstakeDelay.toString()} too low for the given hub ${config.minimumUnstakeDelay.toString()}`)
         }
         const stakeValue = stakeParam - BigInt(stake.toString())
@@ -474,9 +474,9 @@ export class CommandsLogic {
       const relayManager = options.keyManager.getAddress(0)
       this.logger.info(`relayManager is ${relayManager}`)
       const relayHub = await this.contractInteractor._createRelayHub(options.config.relayHubAddress as Address)
-      const stakeManagerAddress = await relayHub.read.getStakeManager()
+      console.log("relayHub.read?", !!relayHub.read); const stakeManagerAddress = await relayHub.read.getStakeManager()
       const stakeManager = await this.contractInteractor._createStakeManager(stakeManagerAddress)
-      const { owner } = (await stakeManager.read.getStakeInfo([relayManager as Address]) as any)
+      const { owner } = await this.contractInteractor.getStakeInfo(relayManager as Address)
       if (options.config.ownerAddress != null) {
         if (owner.toLowerCase() !== options.config.ownerAddress!.toLowerCase()) {
           throw new Error(`Owner in relayHub ${owner} is different than in server config ${options.config.ownerAddress}`)
@@ -627,7 +627,7 @@ export class CommandsLogic {
     }
 
     const stakingTokenContract = await this.contractInteractor._createERC20(stakingTokenAddress ?? '0x')
-    const tokenDecimals = await stakingTokenContract.read.decimals()
+    console.log("stakingTokenContract.read?", !!stakingTokenContract.read); const tokenDecimals = await stakingTokenContract.read.decimals()
     const tokenSymbol = await stakingTokenContract.read.symbol()
 
     const formatToken = (val: any): string => formatTokenAmount(BigInt(val.toString()), Number(tokenDecimals), stakingTokenAddress ?? '0x', tokenSymbol)

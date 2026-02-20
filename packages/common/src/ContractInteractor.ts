@@ -882,9 +882,8 @@ export class ContractInteractor {
   }
 
   async getStakeInfo(managerAddress: Address): Promise<StakeInfo> {
-    const result = await this.stakeManagerInstance.read.getStakeInfo([managerAddress])
-    console.log('StakeInfo', result)
-    return result as unknown as StakeInfo
+    const result = await this.stakeManagerInstance.read.getStakeInfo([managerAddress]) as any
+    return result[0] as unknown as StakeInfo
   }
 
   async isRelayManagerStakedOnHub(relayManager: Address): Promise<ManagerStakeStatus> {

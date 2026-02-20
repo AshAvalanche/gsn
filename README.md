@@ -78,11 +78,7 @@ It has to inherit from the `ERC2771Recipient` base contract in order to support 
    yarn preprocess
    yarn preprocess-paymasters
    ```
-3. Compile TypeScript:
-   ```bash
-   yarn lerna-tsc
-   ```
-4. Run CLI:
+3. Run CLI:
    ```bash
    cd packages/cli
    yarn gsn start

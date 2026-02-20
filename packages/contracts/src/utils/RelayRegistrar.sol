@@ -35,7 +35,7 @@ contract RelayRegistrar is IRelayRegistrar, Ownable, ERC165 {
 
     uint256 private relayRegistrationMaxAge;
 
-    constructor(uint256 _relayRegistrationMaxAge) {
+    constructor(uint256 _relayRegistrationMaxAge) Ownable(msg.sender) {
         setRelayRegistrationMaxAge(_relayRegistrationMaxAge);
         creationBlock = block.number;
     }
