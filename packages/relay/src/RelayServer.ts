@@ -1,7 +1,7 @@
 import chalk from 'chalk'
 import { EventEmitter } from 'events'
 import { Hex, toHex } from 'viem'
-import { type PrefixedHexString } from 'ethereumjs-util'
+
 import { type Block } from '@ethersproject/providers'
 
 import {
@@ -63,8 +63,8 @@ export class RelayServer extends EventEmitter {
   lastScannedBlock = 0
   lastRefreshBlock = 0
   ready = false
-  readonly managerAddress: PrefixedHexString
-  readonly workerAddress: PrefixedHexString
+  readonly managerAddress: Hex
+  readonly workerAddress: Hex
   minMaxPriorityFeePerGas: number = 0
   minMaxFeePerGas: number = 0
   running = false
@@ -397,8 +397,8 @@ returnValue        | ${viewRelayCallRet.returnValue}
   }
 
   async createRelayTransaction(req: RelayTransactionRequest): Promise<{
-    signedTx: PrefixedHexString
-    nonceGapFilled: ObjectMap<PrefixedHexString>
+    signedTx: Hex
+    nonceGapFilled: ObjectMap<Hex>
   }> {
     this.logger.debug(`dump request params: ${JSON.stringify(req)}`)
     if (!this.isReady()) {
@@ -501,7 +501,7 @@ returnValue        | ${viewRelayCallRet.returnValue}
     }
   }
 
-  async init(): Promise<PrefixedHexString[]> {
+  async init(): Promise<Hex[]> {
     const initStartTimestamp = Date.now()
     this.logger.debug('server init start')
     if (this.initialized) {
@@ -556,7 +556,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     currentBlockNumber: number,
     currentBlockHash: string,
     currentBlockTimestamp: number
-  ): Promise<PrefixedHexString> {
+  ): Promise<Hex> {
     this.logger.debug('Replenishing worker balance by manager eth balance')
     const details: SendTransactionDetails = {
       signer: this.managerAddress,
@@ -576,7 +576,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     currentBlockNumber: number,
     currentBlockHash: string,
     currentBlockTimestamp: number
-  ): Promise<PrefixedHexString> {
+  ): Promise<Hex> {
     this.logger.info(`withdrawing manager hub balance (${managerHubBalance.toString()}) to manager`)
     // Refill manager eth balance from hub balance
     const method = await this.web3MethodsBuilder.getWithdrawMethod(this.managerAddress, managerHubBalance.toString())
@@ -598,8 +598,8 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     currentBlockNumber: number,
     currentBlockHash: string,
     currentBlockTimestamp: number
-  ): Promise<PrefixedHexString[]> {
-    const transactionHashes: PrefixedHexString[] = []
+  ): Promise<Hex[]> {
+    const transactionHashes: Hex[] = []
     // get balances
     let managerEthBalance = this.registrationManager.balanceRequired.currentValue
     const managerHubBalance = await this.contractInteractor.hubBalanceOf(this.managerAddress)
@@ -671,7 +671,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     }
   }
 
-  async _worker(block: Block): Promise<PrefixedHexString[]> {
+  async _worker(block: Block): Promise<Hex[]> {
     if (!this.initialized) {
       throw new Error('Please run init() first')
     }
@@ -747,9 +747,9 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     }
   }
 
-  async _handleChanges(currentBlock: Block): Promise<PrefixedHexString[]> {
+  async _handleChanges(currentBlock: Block): Promise<Hex[]> {
     const currentBlockTimestamp = Number(currentBlock.timestamp)
-    let transactionHashes: PrefixedHexString[] = []
+    let transactionHashes: Hex[] = []
     const hubEventsSinceLastScan = await this.getAllHubEventsSinceLastScan()
     const shouldRegisterAgain =
       await this._shouldRegisterAgain(Number(currentBlock.number), currentBlockTimestamp)
@@ -878,9 +878,9 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     }
   }
 
-  async withdrawToOwnerIfNeeded(currentBlockNumber: number, currentBlockHash: string, currentBlockTimestamp: number): Promise<PrefixedHexString[]> {
+  async withdrawToOwnerIfNeeded(currentBlockNumber: number, currentBlockHash: string, currentBlockTimestamp: number): Promise<Hex[]> {
     try {
-      let txHashes: PrefixedHexString[] = []
+      let txHashes: Hex[] = []
       if (!this.isReady() || this.config.withdrawToOwnerOnBalance == null) {
         return txHashes
       }

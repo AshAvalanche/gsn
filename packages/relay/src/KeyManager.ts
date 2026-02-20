@@ -4,19 +4,20 @@ import EthereumHDKey from 'ethereumjs-wallet/dist/hdkey'
 
 import fs from 'fs'
 import ow from 'ow'
-import { bufferToHex, type PrefixedHexString } from 'ethereumjs-util'
+import { bufferToHex } from 'ethereumjs-util'
+import { type Hex } from 'viem'
 import { type TypedTransaction } from '@ethereumjs/tx'
 
 export const KEYSTORE_FILENAME = 'keystore'
 
 export interface SignedTransaction {
-  rawTx: PrefixedHexString
+  rawTx: Hex
   signedEthJsTx: TypedTransaction
 }
 
 export class KeyManager {
   private readonly hdkey: EthereumHDKey
-  private _privateKeys: Record<PrefixedHexString, Buffer> = {}
+  private _privateKeys: Record<Hex, Buffer> = {}
   private nonces: Record<string, number> = {}
 
   /**
@@ -24,7 +25,7 @@ export class KeyManager {
    * @param workdir - read seed from keystore file (or generate one and write it)
    * @param seed - if working in memory (no workdir), you can specify a seed - or use randomly generated one.
    */
-  constructor (count: number, workdir?: string, seed?: string) {
+  constructor(count: number, workdir?: string, seed?: string) {
     ow(count, ow.number)
     if (seed != null && workdir != null) {
       throw new Error('Can\'t specify both seed and workdir')
@@ -57,30 +58,30 @@ export class KeyManager {
     this.generateKeys(count)
   }
 
-  generateKeys (count: number): void {
+  generateKeys(count: number): void {
     this._privateKeys = {}
     this.nonces = {}
     for (let index = 0; index < count; index++) {
       const w = this.hdkey.deriveChild(index).getWallet()
-      const address = bufferToHex(w.getAddress())
+      const address = bufferToHex(w.getAddress()) as Hex
       this._privateKeys[address] = w.getPrivateKey()
       this.nonces[index] = 0
     }
   }
 
-  getAddress (index: number): PrefixedHexString {
+  getAddress(index: number): Hex {
     return this.getAddresses()[index]
   }
 
-  getAddresses (): PrefixedHexString[] {
-    return Object.keys(this._privateKeys)
+  getAddresses(): Hex[] {
+    return Object.keys(this._privateKeys) as Hex[]
   }
 
-  isSigner (signer: string): boolean {
+  isSigner(signer: Hex): boolean {
     return this._privateKeys[signer] != null
   }
 
-  signTransaction (signer: string, tx: TypedTransaction): SignedTransaction {
+  signTransaction(signer: Hex, tx: TypedTransaction): SignedTransaction {
     ow(signer, ow.string)
     const privateKey = this._privateKeys[signer]
     if (privateKey === undefined) {
@@ -88,7 +89,7 @@ export class KeyManager {
     }
     const signedEthJsTx = tx.sign(privateKey)
     signedEthJsTx.raw()
-    const rawTx = '0x' + signedEthJsTx.serialize().toString('hex')
+    const rawTx = '0x' + signedEthJsTx.serialize().toString('hex') as Hex
     return { rawTx, signedEthJsTx }
   }
 }

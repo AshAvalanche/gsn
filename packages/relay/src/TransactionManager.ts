@@ -5,7 +5,7 @@ import { EventEmitter } from 'events'
 import { Mutex } from 'async-mutex'
 import Common from '@ethereumjs/common'
 import { FeeMarketEIP1559Transaction, Transaction, type TxOptions, type TypedTransaction } from '@ethereumjs/tx'
-import { type PrefixedHexString } from 'ethereumjs-util'
+
 
 import {
   type Address,
@@ -30,11 +30,11 @@ import {
 } from './StoredTransaction'
 
 import { type GasPriceFetcher } from './GasPriceFetcher'
-import { toHex } from 'viem'
+import { type Hex, toHex } from 'viem'
 
 export interface SignedTransactionDetails {
-  transactionHash: PrefixedHexString
-  signedTx: PrefixedHexString
+  transactionHash: Hex
+  signedTx: Hex
   nonce: number
 }
 
@@ -63,7 +63,7 @@ export interface BoostingResult {
   /**
    * Mapping old transaction hashes to new ones for transactions that were successfully boosted
    */
-  boostedTransactions: Map<PrefixedHexString, SignedTransactionDetails>
+  boostedTransactions: Map<Hex, SignedTransactionDetails>
 
   /**
    * Details for the first transaction that could not be boosted due to insufficient balance
@@ -98,8 +98,8 @@ export class TransactionManager extends EventEmitter {
 
   _initNonces(): void {
     // todo: initialize nonces for all signers (currently one manager, one worker)
-    this.nonces[this.managerKeyManager.getAddress(0)] = 0
-    this.nonces[this.workersKeyManager.getAddress(0)] = 0
+    this.nonces[this.managerKeyManager.getAddress(0) as Address] = 0
+    this.nonces[this.workersKeyManager.getAddress(0) as Address] = 0
   }
 
   async init(transactionType: TransactionType): Promise<void> {
@@ -170,9 +170,9 @@ data                     | ${transaction.data}
     }
   }
 
-  async broadcastTransaction(signedTx: string, verifiedTxId: string, nonce: number): Promise<SignedTransactionDetails> {
+  async broadcastTransaction(signedTx: Hex, verifiedTxId: Hex, nonce: number): Promise<SignedTransactionDetails> {
     try {
-      const transactionHash = await this.contractInteractor.broadcastTransaction(signedTx as `0x${string}`)
+      const transactionHash = await this.contractInteractor.broadcastTransaction(signedTx as Hex)
       if (transactionHash.toLowerCase() !== verifiedTxId.toLowerCase()) {
         throw new Error(`txhash mismatch: from receipt: ${transactionHash} from txstore:${verifiedTxId}`)
       }
@@ -187,11 +187,11 @@ data                     | ${transaction.data}
     }
   }
 
-  async getNonceGapFilled(signer: Address, fromNonce: number, toNonce: number): Promise<ObjectMap<PrefixedHexString>> {
-    const nonceGap: ObjectMap<PrefixedHexString> = {}
+  async getNonceGapFilled(signer: Address, fromNonce: number, toNonce: number): Promise<ObjectMap<Hex>> {
+    const nonceGap: ObjectMap<Hex> = {}
     const transactions = await this.txStoreManager.getTxsInNonceRange(signer, fromNonce, toNonce)
     for (const transaction of transactions) {
-      nonceGap[transaction.nonce] = transaction.rawSerializedTx
+      nonceGap[transaction.nonce] = transaction.rawSerializedTx as Hex
     }
     return nonceGap
   }
@@ -235,7 +235,7 @@ data                     | ${transaction.data}
       if (this.transactionType === TransactionType.TYPE_TWO) {
         txToSign = new FeeMarketEIP1559Transaction({
           to: txDetails.destination,
-          value: txDetails.value,
+          value: txDetails.value == null ? undefined : txDetails.value.toString(),
           gasLimit,
           maxFeePerGas,
           maxPriorityFeePerGas,
@@ -245,7 +245,7 @@ data                     | ${transaction.data}
       } else {
         txToSign = new Transaction({
           to: txDetails.destination,
-          value: txDetails.value,
+          value: txDetails.value == null ? undefined : txDetails.value.toString(),
           gasLimit,
           gasPrice: maxFeePerGas,
           data: Buffer.from(encodedCall.slice(2), 'hex'),
@@ -272,7 +272,7 @@ data                     | ${transaction.data}
     } finally {
       releaseMutex()
     }
-    return await this.broadcastTransaction(signedTransaction.rawTx, storedTx.txId, storedTx.nonce)
+    return await this.broadcastTransaction(signedTransaction.rawTx as Hex, storedTx.txId as Hex, storedTx.nonce)
   }
 
   async updateTransactionWithMinedBlock(tx: StoredTransaction, minedBlock: ShortBlockInfo): Promise<void> {
@@ -350,7 +350,7 @@ data                     | ${transaction.data}
     const currentNonce = await this.contractInteractor.getTransactionCount(tx.from)
     this.logger.debug(`Current account nonce for ${tx.from} is ${currentNonce}`)
 
-    const signedTransactionDetails = await this.broadcastTransaction(signedTransaction.rawTx, storedTx.txId, storedTx.nonce)
+    const signedTransactionDetails = await this.broadcastTransaction(signedTransaction.rawTx as Hex, storedTx.txId as Hex, storedTx.nonce)
     return { signedTransactionDetails, balanceRequiredDetails }
   }
 
@@ -408,7 +408,7 @@ data                     | ${transaction.data}
         transaction.minedBlock?.number == null || // transaction has never returned a receipt
         currentBlock.number - transaction.minedBlock.number >= this.config.dbPruneTxAfterBlocks // transaction was mined recently - rudimentary check for uncling or reorg
       if (shouldRecheck) {
-        const receipt = await this.contractInteractor.getTransaction(transaction.txId)
+        const receipt = await this.contractInteractor.getTransaction(transaction.txId as Hex)
         if (receipt == null) {
           this.logger.warn(`warning: failed to fetch receipt for tx ${transaction.txId}`)
           continue
@@ -439,7 +439,7 @@ data                     | ${transaction.data}
     currentBlock: ShortBlockInfo,
     minMaxPriorityFee: number
   ): Promise<BoostingResult> {
-    const boostedTransactions = new Map<PrefixedHexString, SignedTransactionDetails>()
+    const boostedTransactions = new Map<Hex, SignedTransactionDetails>()
     const nonce = await this.contractInteractor.getTransactionCount(signer as Address)
 
     // Load all transactions above currently mined nonce. If it is already mined, the boosting will not affect it.
@@ -485,7 +485,7 @@ data                     | ${transaction.data}
           this.logger.warn('pausing boosting transactions until balance is replenished')
           return { boostedTransactions, balanceRequiredDetails }
         }
-        boostedTransactions.set(transaction.txId, boostedTransactionDetails)
+        boostedTransactions.set(transaction.txId as Hex, boostedTransactionDetails)
         this.logger.debug(`Replaced transaction: nonce: ${transaction.nonce} sender: ${signer} | ${transaction.txId} => ${boostedTransactionDetails.transactionHash}`)
       } else { // The tx is ok, just rebroadcast it
         try {

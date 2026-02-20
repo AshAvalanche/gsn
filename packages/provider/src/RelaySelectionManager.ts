@@ -266,7 +266,10 @@ export class RelaySelectionManager {
     const skippedRelays: string[] = []
     const adjustedArray = allPingResults.results
       .map(it => {
-        return adjustRelayRequestForPingResponse(this.gsnTransactionDetails, it, this.logger)
+        return adjustRelayRequestForPingResponse({
+          maxFeePerGas: this.gsnTransactionDetails.maxFeePerGas as Hex,
+          maxPriorityFeePerGas: this.gsnTransactionDetails.maxPriorityFeePerGas as Hex
+        }, it, this.logger)
       })
       .filter(it => {
         const isGasPriceWithinSlack = it.maxDeltaPercent <= this.config.gasPriceSlackPercent
