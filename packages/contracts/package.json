@@ -10,7 +10,7 @@
     "typechain-generate": "yarn generate-types",
     "generate-types": "wagmi generate",
     "lint": "solhint -f unix \"src/**/*.sol\" --max-warnings 0",
-    "rm-dist": "rm -rf types/truffle-contracts solpp"
+    "rm-dist": "rm -rf types solpp"
   },
   "files": [
     "src/*",
