@@ -22,7 +22,7 @@ function commaSeparatedList(value: string, _dummyPrevious: string[]): string[] {
 
 gsnCommander(['n', 'f', 'm', 'g', 'l'])
   .option('--directCall', 'whether to run transaction with relay or directly', false)
-  .option('--abiFile <string>', 'path to an ABI truffle artifact JSON file')
+  .option('--abiFile <string>', 'path to an ABI artifact JSON file')
   .option('--method <string>', 'method name to execute')
   .option('--methodParams <items>', 'comma separated args list', commaSeparatedList)
   .option('--calldata <string>', 'exact calldata to use')
