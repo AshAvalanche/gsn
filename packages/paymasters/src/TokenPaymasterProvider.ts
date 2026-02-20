@@ -1,4 +1,4 @@
-import { type PrefixedHexString, isValidAddress } from 'ethereumjs-util'
+import { isValidAddress } from 'ethereumjs-util'
 
 import {
   type GSNUnresolvedConstructorInput,
@@ -13,6 +13,7 @@ import {
   type EIP712Domain,
   EIP712DomainType,
   EIP712DomainTypeWithoutVersion,
+  Hex,
   type RelayRequest,
   type SupportedTokenSymbols,
   constants,
@@ -70,7 +71,7 @@ export class TokenPaymasterProvider extends RelayProvider {
     return this
   }
 
-  async _buildPaymasterData(relayRequest: RelayRequest): Promise<PrefixedHexString> {
+  async _buildPaymasterData(relayRequest: RelayRequest): Promise<Hex> {
     if (this.config.tokenPaymasterDomainSeparators == null) {
       throw new Error('TokenPaymasterProvider not initialized. Call init() first')
     }
@@ -109,7 +110,7 @@ export class TokenPaymasterProvider extends RelayProvider {
         )
       }
     }
-    return '0x' + removeHexPrefix(this.tokenPaymasterInteractor.token.address) + removeHexPrefix(permitMethod)
+    return ('0x' + removeHexPrefix(this.tokenPaymasterInteractor.token.address) + removeHexPrefix(permitMethod)) as Hex
   }
 
   async autoSelectToken(): Promise<void> {
