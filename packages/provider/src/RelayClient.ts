@@ -70,12 +70,11 @@ import {
   GsnValidateRequestEvent
 } from './GsnEvents'
 
-import { type IPaymaster } from '@opengsn/contracts/types/ethers-contracts'
 
 // generate "approvalData" and "paymasterData" for a request.
 // both are bytes arrays. paymasterData is part of the client request.
 // approvalData is created after request is filled and signed.
-export const EmptyDataCallback: ApprovalDataCallback & PaymasterDataCallback = async (...args: any[]): Promise<PrefixedHexString> => {
+export const EmptyDataCallback: ApprovalDataCallback & PaymasterDataCallback = async (...args: any[]): Promise<Hex> => {
   return '0x'
 }
 
@@ -540,8 +539,8 @@ export class RelayClient {
   }
 
   // noinspection JSMethodCanBeStatic
-  _getRelayRequestID(relayRequest: RelayRequest, signature: PrefixedHexString): PrefixedHexString {
-    return getRelayRequestID(relayRequest, signature)
+  _getRelayRequestID(relayRequest: RelayRequest, signature: Hex): Hex {
+    return getRelayRequestID(relayRequest, signature) as Hex
   }
 
   async _prepareRelayRequest(
@@ -619,7 +618,7 @@ export class RelayClient {
     this.emit(new GsnSignRequestEvent())
     await this.switchSigner(relayRequest.request.from) // TODO: this redundant call is needed only for the tests that don't call to 'relayTransaction' - refactor
     const signature = await this.dependencies.accountManager.sign(this.config.domainSeparatorName, relayRequest)
-    const relayRequestId = this._getRelayRequestID(relayRequest, signature)
+    const relayRequestId = this._getRelayRequestID(relayRequest, signature as Hex)
     const approvalData = await this.dependencies.asyncApprovalData(relayRequest, relayRequestId)
 
     if (toBuffer(relayRequest.relayData.paymasterData).length >
@@ -888,7 +887,7 @@ export class RelayClient {
    */
   async _verifyDryRunSuccessful(
     relayRequest: RelayRequest,
-    gasAndDataLimits: IPaymaster.GasAndDataLimitsStructOutput
+    gasAndDataLimits: GasAndDataLimits
   ): Promise<
     {
       viewCallGasLimit: bigint

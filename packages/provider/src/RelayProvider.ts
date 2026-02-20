@@ -368,7 +368,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
 
   _onRelayTransactionFulfilled(relayingResult: RelayingResult, payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     if (relayingResult.relayRequestID != null) {
-      const jsonRpcSendResult = this._convertRelayRequestIdToRpcSendResponse(relayingResult.relayRequestID, payload)
+      const jsonRpcSendResult = this._convertRelayRequestIdToRpcSendResponse(relayingResult.relayRequestID as Hex, payload)
       this.cacheSubmittedTransactionDetails(relayingResult)
       callback(null, jsonRpcSendResult)
     } else {

@@ -1,3 +1,4 @@
+import { type Hex } from 'viem'
 import { type PrefixedHexString } from 'ethereumjs-util'
 
 import { type Transaction, parse } from '@ethersproject/transactions'
@@ -146,9 +147,9 @@ export class RelayedTransactionValidator {
     const relayRequestAbiEncode = this.contractInteractor.encodeABI({
       domainSeparatorName: request.metadata.domainSeparatorName,
       relayRequest: request.relayRequest,
-      signature: request.metadata.signature,
-      approvalData: request.metadata.approvalData,
-      maxAcceptanceBudget: request.metadata.maxAcceptanceBudget
+      signature: request.metadata.signature as Hex,
+      approvalData: request.metadata.approvalData as Hex,
+      maxAcceptanceBudget: request.metadata.maxAcceptanceBudget as Hex
     })
     return relayRequestAbiEncode === transaction.data
   }
