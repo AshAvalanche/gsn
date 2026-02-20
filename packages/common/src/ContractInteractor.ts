@@ -292,6 +292,7 @@ export class ContractInteractor {
     this.deployment.stakeManagerAddress = stakeManagerAddress
     this.deployment.penalizerAddress = penalizerAddress
     this.deployment.relayRegistrarAddress = relayRegistrarAddress
+    await this._initializeContracts()
   }
 
   async _validateCompatibility(): Promise<void> {

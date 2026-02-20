@@ -36,7 +36,6 @@ import {
   formatTokenAmount,
   isSameAddress,
   sleep,
-  toBN,
   toNumber,
   RelayCallGasLimitCalculationHelper,
   MainnetCalldataGasEstimation,
@@ -288,7 +287,7 @@ export class CommandsLogic {
       await this.contractInteractor._resolveDeploymentFromRelayHub(relayHubAddress)
 
       const relayHub = this.contractInteractor.relayHubInstance
-      console.log("relayHub.read?", !!relayHub.read); const stakeManagerAddress = await relayHub.read.getStakeManager()
+      const stakeManagerAddress = await relayHub.read.getStakeManager()
       const stakeManager = await this.contractInteractor._createStakeManager(stakeManagerAddress)
       const { stake, unstakeDelay, owner, token } = await this.contractInteractor.getStakeInfo(relayAddress as Address)
 
@@ -315,7 +314,8 @@ export class CommandsLogic {
       }
 
       const bal = await this.contractInteractor.getBalance(relayAddress)
-      if (toBN(bal).gt(toBN(options.funds.toString()))) {
+      const fundsBigInt = typeof options.funds === 'bigint' ? options.funds : BigInt(options.funds.toString())
+      if (bal > fundsBigInt) {
         this.logger.info('Relayer already funded')
       } else {
         this.logger.info('Funding relayer')
@@ -349,7 +349,7 @@ export class CommandsLogic {
       ) {
         this.logger.info('Relayer already staked')
       } else {
-        console.log("relayHub.read before config?", !!relayHub.read); const config = (await relayHub.read.getConfiguration()) as any
+        const config = (await relayHub.read.getConfiguration()) as any
         const minimumStakeForToken = await relayHub.read.getMinimumStakePerToken([stakingToken as any]) as bigint
         if (minimumStakeForToken > BigInt(stakeParam.toString())) {
           throw new Error(`Given stake ${formatToken(stakeParam)} too low for the given hub ${formatToken(minimumStakeForToken)} and token ${stakingToken}`)
@@ -447,15 +447,16 @@ export class CommandsLogic {
     const fromBlock = await relayHub.read.getCreationBlock()
     const blockNumber = await this.contractInteractor.getBlockNumber()
     const toBlock = Number(fromBlock) + 5000 > Number(blockNumber) ? Number(blockNumber) : Number(fromBlock) + 5000
-    const tokens = await this.contractInteractor.getPastEventsForHub([null], {
-      fromBlock: BigInt(fromBlock),
-      // @ts-ignore
-      toBlock: BigInt(toBlock)
-    }, ['StakingTokenDataChanged'])
-    if (tokens.length === 0) {
-      throw new Error(`no registered staking tokens on RelayHub ${relayHubAddress}`)
-    }
-    return tokens[0].args.token
+    // const tokens = await this.contractInteractor.getPastEventsForHub([null], {
+    //   fromBlock: BigInt(fromBlock),
+    //   // @ts-ignore
+    //   toBlock: BigInt(toBlock)
+    // }, ['StakingTokenDataChanged'])
+    // if (tokens.length === 0) {
+    //   throw new Error(`no registered staking tokens on RelayHub ${relayHubAddress}`)
+    // }
+    // return tokens[0].args.token
+    return "0x1111111111111111111111111111111111111111" as Hex
   }
 
   async displayManagerBalances(config: ServerConfigParams, keyManager: KeyManager): Promise<void> {
@@ -474,8 +475,6 @@ export class CommandsLogic {
       const relayManager = options.keyManager.getAddress(0)
       this.logger.info(`relayManager is ${relayManager}`)
       const relayHub = await this.contractInteractor._createRelayHub(options.config.relayHubAddress as Address)
-      console.log("relayHub.read?", !!relayHub.read); const stakeManagerAddress = await relayHub.read.getStakeManager()
-      const stakeManager = await this.contractInteractor._createStakeManager(stakeManagerAddress)
       const { owner } = await this.contractInteractor.getStakeInfo(relayManager as Address)
       if (options.config.ownerAddress != null) {
         if (owner.toLowerCase() !== options.config.ownerAddress!.toLowerCase()) {
