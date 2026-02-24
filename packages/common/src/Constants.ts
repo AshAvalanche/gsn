@@ -36,12 +36,12 @@ export const constants = {
 }
 
 export const erc165Interfaces = {
-  forwarder: getERC165InterfaceID(iForwarderAbi as any),
-  paymaster: getERC165InterfaceID(iPaymasterAbi as any),
-  penalizer: getERC165InterfaceID(iPenalizerAbi as any),
-  relayRegistrar: getERC165InterfaceID(iRelayRegistrarAbi as any),
-  relayHub: getERC165InterfaceID(iRelayHubAbi as any),
-  stakeManager: getERC165InterfaceID(iStakeManagerAbi as any)
+  forwarder: getERC165InterfaceID(iForwarderAbi),
+  paymaster: getERC165InterfaceID(iPaymasterAbi),
+  penalizer: getERC165InterfaceID(iPenalizerAbi),
+  relayRegistrar: getERC165InterfaceID(iRelayRegistrarAbi),
+  relayHub: getERC165InterfaceID(iRelayHubAbi),
+  stakeManager: getERC165InterfaceID(iStakeManagerAbi)
 }
 
 export const RelayCallStatusCodes = {

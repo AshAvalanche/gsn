@@ -1,12 +1,6 @@
-import { AbiCoder } from '@ethersproject/abi'
+
 import { EventEmitter } from 'events'
-import { type ExternalProvider, JsonRpcProvider, type JsonRpcSigner, Web3Provider } from '@ethersproject/providers'
-import { type Signer } from '@ethersproject/abstract-signer'
-import { type JsonRpcApiProvider as ProviderEthersV6, type Signer as SignerEthersV6 } from 'ethers-v6'
-import { type PrefixedHexString, toBuffer } from 'ethereumjs-util'
-import { createPublicClient, createWalletClient, custom, publicActions, type Hash, type Hex } from 'viem'
-import { type Transaction, parse, serialize } from '@ethersproject/transactions'
-import { BigNumber } from '@ethersproject/bignumber'
+import { createPublicClient, createWalletClient, custom, publicActions, type Hash, type Hex, parseTransaction, serializeTransaction, encodeAbiParameters, type TransactionSerializable } from 'viem'
 
 import {
   type Address,
@@ -18,13 +12,12 @@ import {
   type GsnTransactionDetails,
   HttpClient,
   HttpWrapper,
-  type JsonRpcPayload,
-  type JsonRpcResponse,
   type LoggerInterface,
   type ObjectMap,
   type PaymasterDataCallback,
   PaymasterType,
   type PingFilter,
+  type PrefixedHexString,
   type RelayCallABI,
   type RelayInfo,
   type RelayMetadata,
@@ -57,6 +50,7 @@ import {
 } from './VerifierUtils'
 import { isTransactionValid, RelayedTransactionValidator } from './RelayedTransactionValidator'
 import { defaultGsnConfig, type GSNConfig, type GSNDependencies } from './GSNConfigurator'
+import { type WrappedProvider, type WrappedSigner } from './WrappedProviderTypes'
 
 import {
   GsnDoneRefreshRelaysEvent,
@@ -102,7 +96,7 @@ export interface GSNUnresolvedConstructorInput {
 interface RelayingAttempt {
   relayRequestID?: PrefixedHexString
   validUntilTime?: string
-  transaction?: Transaction
+  transaction?: ParsedTransaction
   isRelayError?: boolean
   error?: Error
   auditPromise?: Promise<AuditResponse>
@@ -112,99 +106,135 @@ export interface RelayingResult {
   relayRequestID?: PrefixedHexString
   submissionBlock?: number
   validUntilTime?: string
-  transaction?: Transaction
+  transaction?: ParsedTransaction
   pingErrors: Map<string, Error>
   priceErrors: Map<string, Error>
   relayingErrors: Map<string, Error>
   auditPromises?: Array<Promise<AuditResponse>>
 }
 
-type sendWeb3js = (payload: JsonRpcPayload, callback: (error: Error | null, result?: JsonRpcResponse) => unknown) => void
-
-interface Web3JsProvider { send: sendWeb3js }
-
-type SupportedProviderLikeType =
-  JsonRpcProvider
-  | Signer
-  | ProviderEthersV6
-  | SignerEthersV6
-  | ExternalProvider
-  | Web3JsProvider
-
-export enum InputProviderType {
-  Web3JsProvider,
-  ProviderEthersV5,
-  SignerEthersV5,
-  ProviderEthersV6,
-  SignerEthersV6
+/**
+ * Parsed transaction data returned by viem's parseTransaction.
+ * Contains the core transaction fields plus optional signature fields.
+ */
+export interface ParsedTransaction {
+  to?: string | null
+  from?: string | null
+  nonce: number
+  data: string
+  value?: bigint
+  gasPrice?: bigint
+  maxFeePerGas?: bigint
+  maxPriorityFeePerGas?: bigint
+  gas?: bigint
+  gasLimit?: bigint
+  chainId?: number
+  type?: string
+  hash?: string
+  r?: string
+  s?: string
+  v?: bigint
+  yParity?: number
 }
 
-// TODO: not even sure v6 provider will work if forced, not wrapped - and wrapping is PITA
+/**
+ * Supported input provider types. Since web3.js is removed,
+ * only WrappedProvider, WrappedSigner, and generic objects (e.g. viem clients) are supported.
+ */
+type SupportedProviderLikeType =
+  WrappedProvider
+  | WrappedSigner
+  | Record<string, unknown>
+
+export enum InputProviderType {
+  Provider,
+  Signer
+}
+
+/**
+ * Detect the type of the input provider and wrap it into WrappedProvider / WrappedSigner.
+ * Supports:
+ *  - WrappedProvider (pass through)
+ *  - WrappedSigner (extract provider from signer if available)
+ *  - viem Client (has request method and transport)
+ */
 export async function wrapInputProviderLike(input: SupportedProviderLikeType): Promise<{
-  provider: JsonRpcProvider
-  signer: JsonRpcSigner
+  provider: WrappedProvider
+  signer: WrappedSigner
   inputProviderType: InputProviderType
 }> {
-  // 1. detect Ethers.js Signer
-  if (
-    typeof input === 'object' &&
-    typeof (input as any).signTransaction === 'function'
-  ) {
-    const providerFromSigner = (input as any).provider
-    if (providerFromSigner == null) {
-      throw new Error('signer not connected')
-    }
-    if (JsonRpcProvider.isProvider(providerFromSigner)) {
-      return {
-        inputProviderType: InputProviderType.SignerEthersV5,
-        provider: providerFromSigner as any,
-        signer: input as any
-      }
-    } else {
-      // this seems to be Ethers v6 signer input - wrapping its provider's "send" function
-      const provider = new Web3Provider(async (method: string, params?: any[]) => {
-        const providerIn = (input as any).provider
-        return providerIn.send.bind(providerIn)(method, params)
-      })
-      // @ts-ignore
-      input._isSigner = true
-      return {
-        inputProviderType: InputProviderType.SignerEthersV6,
-        provider,
-        signer: input as any
-      }
-    }
-  }
+  const inputObj = input as Record<string, unknown>
 
-  // 2. detect Ethers.js Provider
+  // 1. detect WrappedSigner (has getAddress method)
   if (
-    typeof input === 'object' &&
-    typeof (input as any).getSigner === 'function'
+    typeof inputObj.getAddress === 'function' &&
+    typeof inputObj.signTypedData === 'function'
   ) {
-    if (JsonRpcProvider.isProvider(input)) {
-      return {
-        inputProviderType: InputProviderType.ProviderEthersV5,
-        provider: input as any,
-        signer: (input as any).getSigner()
-      }
-    } else {
-      // this seems to be Ethers v6 provider input - wrapping its "send" function
-      const provider = new Web3Provider(async (method: string, params?: any[]) => {
-        return (input as any).send.bind(input)(method, params)
-      })
-      return {
-        inputProviderType: InputProviderType.ProviderEthersV6,
-        provider,
-        signer: provider.getSigner()
-      }
+    const signer = input as WrappedSigner
+    const providerFromSigner = inputObj.provider as WrappedProvider | undefined
+    if (providerFromSigner == null || typeof providerFromSigner.send !== 'function') {
+      throw new Error('signer not connected to a provider')
     }
-  }
-
-  // 3. probably a "window.ethereum" or "Web3.js" Provider - wrap it with Ethers.js
-  if (typeof input === 'object') {
-    const provider = new Web3Provider(input as any)
     return {
-      inputProviderType: InputProviderType.Web3JsProvider,
+      inputProviderType: InputProviderType.Signer,
+      provider: providerFromSigner,
+      signer
+    }
+  }
+
+  // 2. detect WrappedProvider (has send + getNetwork + getSigner)
+  if (
+    typeof inputObj.send === 'function' &&
+    typeof inputObj.getNetwork === 'function' &&
+    typeof inputObj.getSigner === 'function'
+  ) {
+    const provider = input as WrappedProvider
+    return {
+      inputProviderType: InputProviderType.Provider,
+      provider,
+      signer: provider.getSigner()
+    }
+  }
+
+  // 3. detect viem Client (has request function and transport)
+  if (
+    typeof inputObj.request === 'function' &&
+    inputObj.transport != null
+  ) {
+    const viemClient = input as {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+      getChainId?: () => Promise<number>
+    }
+    const provider: WrappedProvider = {
+      async send(method: string, params: unknown[]): Promise<unknown> {
+        return await viemClient.request({ method, params })
+      },
+      async getBlockNumber(): Promise<number> {
+        const result = await viemClient.request({ method: 'eth_blockNumber' })
+        return parseInt(result as string, 16)
+      },
+      async getNetwork(): Promise<{ chainId: number | bigint }> {
+        if (viemClient.getChainId != null) {
+          const chainId = await viemClient.getChainId()
+          return { chainId }
+        }
+        const result = await viemClient.request({ method: 'eth_chainId' })
+        return { chainId: parseInt(result as string, 16) }
+      },
+      getSigner(_addressOrIndex?: string | number): WrappedSigner {
+        return {
+          async getAddress(): Promise<string> {
+            const accounts = await viemClient.request({ method: 'eth_accounts' }) as string[]
+            if (accounts.length === 0) {
+              throw new Error('No accounts available')
+            }
+            return accounts[0]
+          }
+        }
+      }
+    }
+    return {
+      inputProviderType: InputProviderType.Provider,
       provider,
       signer: provider.getSigner()
     }
@@ -223,8 +253,8 @@ export class RelayClient {
   logger!: LoggerInterface
   initializingPromise?: Promise<void>
   inputProviderType!: InputProviderType
-  wrappedUnderlyingProvider!: JsonRpcProvider
-  wrappedUnderlyingSigner!: JsonRpcSigner
+  wrappedUnderlyingProvider!: WrappedProvider
+  wrappedUnderlyingSigner!: WrappedSigner
 
   constructor(
     rawConstructorInput: GSNUnresolvedConstructorInput
@@ -293,24 +323,29 @@ export class RelayClient {
    *
    * @param {*} transaction - actual Ethereum transaction, signed by a relay
    */
-  async _broadcastRawTx(transaction: Transaction): Promise<{
+  async _broadcastRawTx(transaction: ParsedTransaction): Promise<{
     hasReceipt: boolean
     broadcastError?: Error
     wrongNonce?: boolean
   }> {
-    const strippedTransaction = Object.assign({}, transaction)
-    delete strippedTransaction.from
-    delete strippedTransaction.hash
-    delete strippedTransaction.r
-    delete strippedTransaction.s
-    delete strippedTransaction.v
-
-    const signature = {
-      r: transaction.r ?? '',
-      s: transaction.s,
-      v: transaction.v
-    }
-    const rawTx = serialize(strippedTransaction, signature) as Hex
+    const txToSerialize = {
+      to: transaction.to as Hex | undefined ?? undefined,
+      nonce: transaction.nonce,
+      data: transaction.data as Hex,
+      value: transaction.value,
+      gasPrice: transaction.gasPrice,
+      maxFeePerGas: transaction.maxFeePerGas,
+      maxPriorityFeePerGas: transaction.maxPriorityFeePerGas,
+      gas: transaction.gas ?? transaction.gasLimit,
+      chainId: transaction.chainId
+    } as TransactionSerializable
+    const signature = transaction.r != null && transaction.s != null ? {
+      r: transaction.r as Hex,
+      s: transaction.s as Hex,
+      v: transaction.v ?? 0n,
+      yParity: transaction.yParity ?? 0
+    } : undefined
+    const rawTx = serializeTransaction(txToSerialize, signature) as Hex
     const txHash = transaction.hash ?? ''
     try {
       if (await this._isAlreadySubmitted(txHash as Hex)) {
@@ -494,13 +529,13 @@ export class RelayClient {
     }
     let signedTx: PrefixedHexString
     let nonceGapFilled: ObjectMap<PrefixedHexString>
-    let transaction: Transaction
+    let transaction: ParsedTransaction
     let auditPromise: Promise<AuditResponse>
     this.emit(new GsnSendToRelayerEvent(relayInfo.relayInfo.relayUrl))
     try {
       ({ signedTx, nonceGapFilled } =
         await this.dependencies.httpClient.relayTransaction(relayInfo.relayInfo.relayUrl, httpRequest))
-      transaction = parse(signedTx)
+      transaction = parseTransaction(signedTx as Hex) as unknown as ParsedTransaction
       auditPromise = this.auditTransaction(signedTx, relayInfo.relayInfo.relayUrl)
         .then((penalizeResponse) => {
           if (penalizeResponse.commitTxHash != null) {
@@ -589,7 +624,7 @@ export class RelayClient {
         // temp values. filled in by 'fillRelayInfo'
         relayWorker: '0x',
         transactionCalldataGasUsed: '', // temp value. filled in by estimateCalldataCostAbi, below.
-        paymasterData: '', // temp value. filled in by asyncPaymasterData, below.
+        paymasterData: '0x', // temp value. filled in by asyncPaymasterData, below.
         maxFeePerGas,
         maxPriorityFeePerGas,
         paymaster,
@@ -621,11 +656,13 @@ export class RelayClient {
     const relayRequestId = this._getRelayRequestID(relayRequest, signature as Hex)
     const approvalData = await this.dependencies.asyncApprovalData(relayRequest, relayRequestId)
 
-    if (toBuffer(relayRequest.relayData.paymasterData).length >
+    const paymasterDataByteLength = (relayRequest.relayData.paymasterData.length - 2) / 2
+    if (paymasterDataByteLength >
       this.config.maxPaymasterDataLength) {
-      throw new Error('actual paymasterData larger than maxPaymasterDataLength')
+      throw new Error('actual paymasterData length is ' + paymasterDataByteLength)
     }
-    if (toBuffer(approvalData).length >
+    const approvalDataByteLength = (approvalData.length - 2) / 2
+    if (approvalDataByteLength >
       this.config.maxApprovalDataLength) {
       throw new Error('actual approvalData larger than maxApprovalDataLength')
     }
@@ -636,7 +673,7 @@ export class RelayClient {
     const relayHubAddress = this.dependencies.contractInteractor.getDeployment().relayHubAddress ?? ''
     const metadata: RelayMetadata = {
       domainSeparatorName: this.config.domainSeparatorName,
-      maxAcceptanceBudget: relayInfo.pingResponse.maxAcceptanceBudget,
+      maxAcceptanceBudget: relayInfo.pingResponse.maxAcceptanceBudget as Hex,
       relayHubAddress: relayHubAddress as Hex,
       relayRequestId,
       signature,
@@ -691,19 +728,15 @@ export class RelayClient {
     }
   }
 
-  // getUnderlyingProvider (): JsonRpcProvider {
-  //   if (this.wrappedUnderlyingProvider == null) {
-  //
-  //   }
-  //   return this.wrappedUnderlyingProvider
-  // }
+  // commented-out method
+  // getUnderlyingProvider (): WrappedProvider {
 
   async _resolveConfiguration({
     config = {}
   }: GSNUnresolvedConstructorInput): Promise<GSNConfig> {
     let configFromServer: Partial<GSNConfig> = {}
     const network = await this.wrappedUnderlyingProvider.getNetwork()
-    const chainId = network.chainId
+    const chainId = Number(network.chainId)
     const useClientDefaultConfigUrl = config.useClientDefaultConfigUrl ?? defaultGsnConfig.useClientDefaultConfigUrl
     if (useClientDefaultConfigUrl) {
       this.logger.debug(`Reading default client config for chainId ${chainId.toString()}`)
@@ -791,7 +824,12 @@ export class RelayClient {
         return await this.wrappedUnderlyingProvider.send(method, params ?? [])
       }
     })
-    const account = await this.wrappedUnderlyingSigner.getAddress() as Address
+    let account: Address | undefined
+    try {
+      account = await this.wrappedUnderlyingSigner.getAddress() as Address
+    } catch (e: any) {
+      this.logger.debug(`Could not get address from signer: ${e.message as string}`)
+    }
     const walletClient = createWalletClient({
       transport,
       account
@@ -806,7 +844,7 @@ export class RelayClient {
         environment: this.config.environment,
         domainSeparatorName: this.config.domainSeparatorName,
         calldataEstimationSlackFactor: this.config.calldataEstimationSlackFactor,
-        deployment: { paymasterAddress: paymasterAddress as any }
+        deployment: { paymasterAddress: paymasterAddress }
       }).init()
     const gasLimitCalculator = overrideDependencies?.gasLimitCalculator ?? new RelayCallGasLimitCalculationHelper(
       contractInteractor,
@@ -842,18 +880,9 @@ export class RelayClient {
     }
   }
 
-  isUsingEthersV6(): boolean {
-    return (
-      this.inputProviderType === InputProviderType.ProviderEthersV6 ||
-      this.inputProviderType === InputProviderType.SignerEthersV6
-    )
-  }
 
   isConnectedWithSigner(): boolean {
-    return (
-      this.inputProviderType === InputProviderType.SignerEthersV5 ||
-      this.inputProviderType === InputProviderType.SignerEthersV6
-    )
+    return this.inputProviderType === InputProviderType.Signer
   }
 
   async _resolveVerifierApprovalDataCallback(
@@ -918,13 +947,13 @@ export class RelayClient {
     const relayHubAddress = this.dependencies.contractInteractor.getDeployment().relayHubAddress ?? ''
     const dryRunMetadata: RelayMetadata = {
       domainSeparatorName: this.config.domainSeparatorName,
-      maxAcceptanceBudget: dryRunRelayInfo.pingResponse.maxAcceptanceBudget,
+      maxAcceptanceBudget: dryRunRelayInfo.pingResponse.maxAcceptanceBudget as Hex,
       relayHubAddress: relayHubAddress as Address,
-      relayRequestId: '',
+      relayRequestId: '0x',
       relayMaxNonce: 0,
       relayLastKnownNonce: 0,
-      signature: '0x' + 'ff'.repeat(65),
-      approvalData: '0x' + 'ff'.repeat(this.config.maxApprovalDataLength)
+      signature: ('0x' + 'ff'.repeat(65)) as Hex,
+      approvalData: ('0x' + 'ff'.repeat(this.config.maxApprovalDataLength)) as Hex
     }
     // TODO: clone?
     await this.fillRelayInfo(relayRequest, dryRunRelayInfo)
@@ -1000,7 +1029,7 @@ export class RelayClient {
     if (dappOwner != null && paymasterAddress === PaymasterType.SingletonWhitelistPaymaster) {
       // TODO: refactor
       this.config.maxPaymasterDataLength = 32
-      return async () => { return new AbiCoder().encode(['address'], [dappOwner]) as Hex }
+      return async () => { return encodeAbiParameters([{ type: 'address' }], [dappOwner as Hex]) as Hex }
     }
     return EmptyDataCallback
   }

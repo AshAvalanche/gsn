@@ -1,5 +1,4 @@
-import { type Address, type IntString } from './Aliases'
-import { type PrefixedHexString } from 'ethereumjs-util'
+import { type Address, type IntString, type PrefixedHexString } from './Aliases'
 
 export interface GsnTransactionDetails {
   // Added by the Web3 call stack:

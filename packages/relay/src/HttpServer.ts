@@ -10,6 +10,7 @@ import {
   AuditRequestShape,
   type AuditResponse,
   type LoggerInterface,
+  type RelayTransactionRequest,
   RelayTransactionRequestShape
 } from '@opengsn/common'
 import { type RelayServer } from './RelayServer'
@@ -118,7 +119,7 @@ export class HttpServer {
     }
     try {
       ow(req.body, ow.object.exactShape(RelayTransactionRequestShape))
-      const { signedTx, nonceGapFilled } = await this.relayService.createRelayTransaction(req.body as any)
+      const { signedTx, nonceGapFilled } = await this.relayService.createRelayTransaction(req.body as RelayTransactionRequest)
       res.send({ signedTx, nonceGapFilled })
     } catch (e: any) {
       const error: string = e.message

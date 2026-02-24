@@ -1,7 +1,16 @@
 import chalk from 'chalk'
-import { type Block } from '@ethersproject/providers'
 import { type EventEmitter } from 'events'
 import { Hex, toHex } from 'viem'
+
+/**
+ * Minimal Block interface replacing ethers' Block type.
+ * Fields are non-nullable since we only use confirmed blocks.
+ */
+export interface Block {
+  number: number
+  hash: string
+  timestamp: number
+}
 
 import {
   type Address,
@@ -151,6 +160,7 @@ export class RegistrationManager {
     if (!this._isOwnerSetOnStakeManager) {
       if (this.balanceRequired.isSatisfied) {
         // TODO: _isSetOwnerCalled is different from 'isActionPending' only cause we handle owner outside the event loop
+        console.log(`DEBUG: balance satisfied, _isSetOwnerCalled=${this._isSetOwnerCalled}`)
         if (!this._isSetOwnerCalled) {
           this._isSetOwnerCalled = true
           transactionHashes = transactionHashes.concat(await this.setOwnerInStakeManager(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
@@ -197,7 +207,7 @@ export class RegistrationManager {
     }
 
     // handle HubUnauthorized only after the due time
-    const currentBlockTime = currentBlock.timestamp
+    const currentBlockTime = Number(currentBlock.timestamp)
     for (const eventData of this._extractDuePendingEvents(currentBlockTime)) {
       switch (eventData.eventName) {
         case HubUnauthorized:

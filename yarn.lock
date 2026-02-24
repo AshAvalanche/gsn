@@ -575,7 +575,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ethersproject/abi@npm:5.7.0, @ethersproject/abi@npm:^5.6.3, @ethersproject/abi@npm:^5.6.4, @ethersproject/abi@npm:^5.7.0":
+"@ethersproject/abi@npm:5.7.0, @ethersproject/abi@npm:^5.6.3, @ethersproject/abi@npm:^5.7.0":
   version: 5.7.0
   resolution: "@ethersproject/abi@npm:5.7.0"
   dependencies:
@@ -802,7 +802,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ethersproject/providers@npm:5.7.2, @ethersproject/providers@npm:^5.7.2":
+"@ethersproject/providers@npm:5.7.2":
   version: 5.7.2
   resolution: "@ethersproject/providers@npm:5.7.2"
   dependencies:
@@ -928,7 +928,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ethersproject/wallet@npm:5.7.0, @ethersproject/wallet@npm:^5.7.0":
+"@ethersproject/wallet@npm:5.7.0":
   version: 5.7.0
   resolution: "@ethersproject/wallet@npm:5.7.0"
   dependencies:
@@ -2660,9 +2660,6 @@ __metadata:
   dependencies:
     "@ethereumjs/common": "npm:^2.6.5"
     "@ethereumjs/tx": "npm:^3.2.0"
-    "@ethersproject/bignumber": "npm:^5.7.0"
-    "@ethersproject/providers": "npm:^5.7.2"
-    "@ethersproject/transactions": "npm:^5.7.0"
     "@metamask/eth-sig-util": "npm:^5.1.0"
     "@opengsn/cli": "npm:^3.0.0-beta.10"
     "@opengsn/common": "npm:^3.0.0-beta.10"
@@ -2712,9 +2709,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@opengsn/paymasters@workspace:packages/paymasters"
   dependencies:
-    "@ethersproject/abi": "npm:^5.6.4"
-    "@ethersproject/abstract-signer": "npm:^5.7.0"
-    "@ethersproject/providers": "npm:^5.7.2"
     "@metamask/eth-sig-util": "npm:^5.1.0"
     "@opengsn/cli": "npm:^3.0.0-beta.10"
     "@opengsn/common": "npm:^3.0.0-beta.10"
@@ -2748,12 +2742,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@opengsn/provider@workspace:packages/provider"
   dependencies:
-    "@ethersproject/abi": "npm:^5.7.0"
-    "@ethersproject/abstract-signer": "npm:^5.7.0"
-    "@ethersproject/bignumber": "npm:^5.7.0"
-    "@ethersproject/providers": "npm:^5.7.2"
-    "@ethersproject/transactions": "npm:^5.7.0"
-    "@ethersproject/wallet": "npm:^5.7.0"
     "@metamask/eth-sig-util": "npm:^5.1.0"
     "@opengsn/common": "npm:^3.0.0-beta.10"
     "@opengsn/contracts": "npm:^3.0.0-beta.10"
@@ -2770,8 +2758,6 @@ __metadata:
   dependencies:
     "@ethereumjs/common": "npm:^2.6.2"
     "@ethereumjs/tx": "npm:^3.2.0"
-    "@ethersproject/bignumber": "npm:^5.7.0"
-    "@ethersproject/providers": "npm:^5.7.2"
     "@opengsn/common": "npm:^3.0.0-beta.10"
     "@opengsn/contracts": "npm:^3.0.0-beta.10"
     "@opengsn/logger": "npm:^3.0.0-beta.10"

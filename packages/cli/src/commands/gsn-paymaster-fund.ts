@@ -26,7 +26,7 @@ const commander = gsnCommander(['n', 'f', 'h', 'm'])
   const logic = new CommandsLogic(nodeURL, logger, { relayHubAddress: hub as Address }, mnemonic, commander.derivationPath, commander.derivationIndex, commander.privateKeyHex)
   await logic.init()
   const from = commander.from ?? await logic.findWealthyAccount()
-  const amount = commander.amount ?? ether('1')
+  const amount = commander.amount ?? ether('0.002')
 
   const balance = await logic.fundPaymaster(from as Address, paymaster as Address, amount)
   console.log(`Paymaster ${paymaster} balance is now ${balance.toString()} wei`)

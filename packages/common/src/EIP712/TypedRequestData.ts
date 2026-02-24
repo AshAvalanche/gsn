@@ -1,8 +1,7 @@
-import { type Address } from '../types/Aliases'
+import { type Address, type PrefixedHexString } from '../types/Aliases'
 import { type RelayRequest } from './RelayRequest'
 
-import { bufferToHex, type PrefixedHexString } from 'ethereumjs-util'
-import { TypedDataUtils, type TypedMessage, SignTypedDataVersion } from '@metamask/eth-sig-util'
+import { encodeAbiParameters, keccak256, toHex, type Hex } from 'viem'
 
 export interface MessageTypeProperty {
   name: string
@@ -73,7 +72,7 @@ export const GsnDomainSeparatorType = {
   version: '3'
 }
 
-export function getDomainSeparator (name: string, verifier: Address, chainId: number): EIP712Domain {
+export function getDomainSeparator(name: string, verifier: Address, chainId: number): EIP712Domain {
   return {
     name,
     version: GsnDomainSeparatorType.version,
@@ -82,23 +81,41 @@ export function getDomainSeparator (name: string, verifier: Address, chainId: nu
   }
 }
 
-export function getDomainSeparatorHash (name: string, verifier: Address, chainId: number): PrefixedHexString {
-  return bufferToHex(
-    TypedDataUtils.hashStruct(
-      'EIP712Domain',
-      getDomainSeparator(name, verifier, chainId) as Record<string, unknown>,
-      { EIP712Domain: EIP712DomainType },
-      SignTypedDataVersion.V4)
+const EIP712_DOMAIN_TYPE_HASH = keccak256(
+  toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
+)
+
+export function getDomainSeparatorHash(name: string, verifier: Address, chainId: number): PrefixedHexString {
+  const encodedName = keccak256(toHex(name))
+  const domain = getDomainSeparator(name, verifier, chainId)
+  const encodedVersion = keccak256(toHex(domain.version!))
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'uint256' },
+        { type: 'address' }
+      ],
+      [
+        EIP712_DOMAIN_TYPE_HASH as Hex,
+        encodedName as Hex,
+        encodedVersion as Hex,
+        BigInt(chainId),
+        verifier as Hex
+      ]
+    )
   )
 }
 
-export class TypedRequestData implements TypedMessage<Types> {
+export class TypedRequestData {
   readonly types: Types
   readonly domain: EIP712Domain
   readonly primaryType: string
-  readonly message: any
+  readonly message: Record<string, unknown>
 
-  constructor (
+  constructor(
     name: string,
     chainId: number,
     verifier: Address,

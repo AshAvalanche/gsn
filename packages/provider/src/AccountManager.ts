@@ -1,16 +1,5 @@
-// @ts-ignore
-import ethWallet from 'ethereumjs-wallet'
-import { type JsonRpcSigner, type TransactionRequest } from '@ethersproject/providers'
-import { Wallet } from '@ethersproject/wallet'
-import { type PrefixedHexString } from 'ethereumjs-util'
-import { parse } from '@ethersproject/transactions'
-import {
-  SignTypedDataVersion,
-  type TypedMessage,
-  personalSign,
-  recoverTypedSignature,
-  signTypedData
-} from '@metamask/eth-sig-util'
+import { type Hex, parseTransaction, serializeTransaction, type TransactionSerializable, hashTypedData, recoverTypedDataAddress } from 'viem'
+import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts'
 
 import {
   type Address,
@@ -20,10 +9,12 @@ import {
   getEip712Signature,
   isSameAddress,
   removeHexPrefix,
-  Hex
+  type PrefixedHexString
 } from '@opengsn/common'
 
 import { type GSNConfig } from './GSNConfigurator'
+import { type WrappedSigner } from './WrappedProviderTypes'
+import { type GsnTransactionConfig } from './RelayProvider'
 
 export interface AccountKeypair {
   privateKey: PrefixedHexString
@@ -31,18 +22,17 @@ export interface AccountKeypair {
 }
 
 function toAddress(privateKey: PrefixedHexString): Address {
-  const wallet = ethWallet.fromPrivateKey(Buffer.from(removeHexPrefix(privateKey), 'hex'))
-  return wallet.getChecksumAddressString() as Address
+  const account = privateKeyToAccount(privateKey as Hex)
+  return account.address as Address
 }
 
 export class AccountManager {
-  // private readonly provider: JsonRpcProvider
-  private signer: JsonRpcSigner
+  private signer: WrappedSigner
   private readonly accounts: AccountKeypair[] = []
   private readonly config: GSNConfig
   readonly chainId: number
 
-  constructor(signer: JsonRpcSigner, chainId: number, config: GSNConfig) {
+  constructor(signer: WrappedSigner, chainId: number, config: GSNConfig) {
     this.signer = signer
     this.chainId = chainId
     this.config = config
@@ -69,8 +59,7 @@ export class AccountManager {
   }
 
   newAccount(): AccountKeypair {
-    const a = ethWallet.generate()
-    const privateKey = a.getPrivateKeyString()
+    const privateKey = generatePrivateKey()
     this.addAccount(privateKey)
     const address = toAddress(privateKey)
     return {
@@ -84,30 +73,60 @@ export class AccountManager {
     if (keypair == null) {
       throw new Error(`Account ${from} not found`)
     }
-    const privateKey = Buffer.from(removeHexPrefix(keypair.privateKey), 'hex')
-    return personalSign({ privateKey, data: message })
+    const account = privateKeyToAccount(keypair.privateKey as Hex)
+    // personalSign equivalent: sign the raw message
+    // viem's signMessage expects Uint8Array or string
+    const signature = account.signMessage({ message })
+    // Return synchronously - but signMessage returns a promise
+    throw new Error('signMessage is now async - callers must be updated')
   }
 
-  async signTransaction(transactionConfig: TransactionRequest, from: Address): Promise<RLPEncodedTransaction> {
+  async signMessageAsync(message: string, from: Address): Promise<PrefixedHexString> {
+    const keypair = this.accounts.find(account => isSameAddress(account.address, from))
+    if (keypair == null) {
+      throw new Error(`Account ${from} not found`)
+    }
+    const account = privateKeyToAccount(keypair.privateKey as Hex)
+    return await account.signMessage({ message })
+  }
+
+  async signTransaction(transactionConfig: GsnTransactionConfig, from: Address): Promise<RLPEncodedTransaction> {
     if (transactionConfig.chainId != null && transactionConfig.chainId !== this.chainId) {
       throw new Error(`This provider is initialized for chainId ${this.chainId} but transaction targets chainId ${transactionConfig.chainId}`)
     }
-    const privateKeyBuf = Buffer.from(removeHexPrefix(this.findPrivateKey(from)), 'hex')
+    const privateKey = this.findPrivateKey(from)
+    const account = privateKeyToAccount(privateKey as Hex)
 
-    const wallet = new Wallet(privateKeyBuf)
-
-    // if called from Web3.js Provider, the 'transactionConfig' object will have 'gas' field instead of 'gasLimit'
-    const gasLimit = transactionConfig.gasLimit ?? (transactionConfig as any).gas
-    // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-    const type: number = transactionConfig.type ?? (transactionConfig.maxFeePerGas == null) ? 0 : 2
+    const type: number = transactionConfig.type ?? (transactionConfig.maxFeePerGas == null ? 0 : 2)
     const chainId = transactionConfig.chainId ?? this.chainId
-    const transactionRequest = Object.assign({}, transactionConfig, { gasLimit, type, chainId })
-    delete (transactionRequest as any).gas
-    const raw = await wallet.signTransaction(transactionRequest)
-    const transaction = parse(raw)
-    // even more annoying is that 'RLPEncodedTransaction', which is expected return type here, is not yet 1559-ready
+
+    const txData: TransactionSerializable = type === 2
+      ? {
+        to: (transactionConfig.to ?? undefined) as Hex | undefined,
+        data: (transactionConfig.data ?? '0x') as Hex,
+        value: transactionConfig.value != null ? BigInt(transactionConfig.value) : 0n,
+        nonce: transactionConfig.nonce != null ? Number(transactionConfig.nonce) : 0,
+        gas: transactionConfig.gasLimit != null ? BigInt(transactionConfig.gasLimit) : 0n,
+        maxFeePerGas: transactionConfig.maxFeePerGas != null ? BigInt(transactionConfig.maxFeePerGas) : 0n,
+        maxPriorityFeePerGas: transactionConfig.maxPriorityFeePerGas != null ? BigInt(transactionConfig.maxPriorityFeePerGas) : 0n,
+        chainId,
+        type: 'eip1559'
+      }
+      : {
+        to: (transactionConfig.to ?? undefined) as Hex | undefined,
+        data: (transactionConfig.data ?? '0x') as Hex,
+        value: transactionConfig.value != null ? BigInt(transactionConfig.value) : 0n,
+        nonce: transactionConfig.nonce != null ? Number(transactionConfig.nonce) : 0,
+        gas: transactionConfig.gasLimit != null ? BigInt(transactionConfig.gasLimit) : 0n,
+        gasPrice: transactionConfig.gasPrice != null ? BigInt(transactionConfig.gasPrice) : 0n,
+        chainId,
+        type: 'legacy'
+      }
+
+    const raw = await account.signTransaction(txData)
+    const parsed = parseTransaction(raw)
     // @ts-ignore
-    return { raw, tx: transaction }
+    return { raw, tx: parsed }
   }
 
   private findPrivateKey(from: Address): PrefixedHexString {
@@ -118,15 +137,15 @@ export class AccountManager {
     return keypair.privateKey
   }
 
-  signTypedData(typedMessage: TypedMessage<any>, from: Address): PrefixedHexString {
-    return this._signWithControlledKey(this.findPrivateKey(from), typedMessage)
+  async signTypedData(typedMessage: Record<string, unknown>, from: Address): Promise<PrefixedHexString> {
+    return await this._signWithControlledKey(this.findPrivateKey(from), typedMessage) as PrefixedHexString
   }
 
   async sign(
     domainSeparatorName: string,
     relayRequest: RelayRequest
   ): Promise<PrefixedHexString> {
-    let signature
+    let signature: string
     const forwarder = relayRequest.relayData.forwarder
 
     const cloneRequest = { ...relayRequest }
@@ -141,44 +160,48 @@ export class AccountManager {
 
     try {
       if (keypair != null) {
-        signature = this._signWithControlledKey(keypair.privateKey, signedData)
+        signature = await this._signWithControlledKey(keypair.privateKey, signedData as unknown as Record<string, unknown>)
       } else {
         signature = await this._signWithProvider(signedData)
       }
-      // Sanity check only
-      rec = recoverTypedSignature({
-        data: signedData,
-        signature,
-        version: SignTypedDataVersion.V4
-      }) as Hex
-    } catch (error: any) {
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-      throw new Error(`Failed to sign relayed transaction for ${relayRequest.request.from}: ${error.message}`)
+      // Sanity check only — recover the signer from the typed data signature
+      rec = await recoverTypedDataAddress({
+        domain: signedData.domain as Record<string, unknown>,
+        types: signedData.types as Record<string, readonly { name: string; type: string }[]>,
+        primaryType: signedData.primaryType as string,
+        message: signedData.message as Record<string, unknown>,
+        signature: signature as Hex
+      }) as Address
+    } catch (error: unknown) {
+      throw new Error(`Failed to sign relayed transaction for ${relayRequest.request.from}: ${(error as Error).message}`)
     }
     if (!isSameAddress(relayRequest.request.from.toLowerCase() as Address, rec)) {
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       throw new Error(`Internal RelayClient exception: signature is not correct: sender=${relayRequest.request.from}, recovered=${rec}`)
     }
-    return signature
+    return signature as PrefixedHexString
   }
 
   // These methods are extracted to
   // a) allow different implementations in the future, and
   // b) allow spying on Account Manager in tests
-  async _signWithProvider(signedData: any): Promise<string> {
-    // @ts-ignore
-    return await this.signer._signTypedData(
-      signedData.domain,
-      signedData.types,
-      signedData.message
+  async _signWithProvider(signedData: { domain: unknown; types: unknown; message: unknown }): Promise<string> {
+    if (this.signer.signTypedData == null) {
+      throw new Error('Signer does not support signTypedData')
+    }
+    return await this.signer.signTypedData(
+      signedData.domain as Record<string, unknown>,
+      signedData.types as Record<string, unknown[]>,
+      signedData.message as Record<string, unknown>
     )
   }
 
-  _signWithControlledKey(privateKey: PrefixedHexString, signedData: TypedMessage<any>): string {
-    return signTypedData({
-      privateKey: Buffer.from(removeHexPrefix(privateKey), 'hex'),
-      data: signedData,
-      version: SignTypedDataVersion.V4
+  async _signWithControlledKey(privateKey: PrefixedHexString, signedData: Record<string, unknown>): Promise<string> {
+    const account = privateKeyToAccount(privateKey as Hex)
+    return await account.signTypedData({
+      domain: (signedData.domain ?? {}) as Record<string, unknown>,
+      types: (signedData.types ?? {}) as Record<string, readonly { name: string; type: string }[]>,
+      primaryType: (signedData.primaryType ?? '') as string,
+      message: (signedData.message ?? {}) as Record<string, unknown>
     })
   }
 
@@ -186,7 +209,7 @@ export class AccountManager {
     return this.accounts.map(it => it.address)
   }
 
-  switchSigner(signer: JsonRpcSigner): void {
+  switchSigner(signer: WrappedSigner): void {
     this.signer = signer
   }
 }

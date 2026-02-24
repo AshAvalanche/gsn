@@ -60,7 +60,7 @@ export class TokenPaymasterProvider extends RelayProvider {
     const chainId = this.origProvider.network.chainId
 
     const paymasterAddress = getPaymasterAddressByTypeAndChain(this.config?.paymasterAddress, chainId, this.logger)
-    this.tokenPaymasterInteractor = new TokenPaymasterInteractor(this.origProvider, paymasterAddress as any, this.logger)
+    this.tokenPaymasterInteractor = new TokenPaymasterInteractor(this.origProvider, paymasterAddress, this.logger)
     await this.tokenPaymasterInteractor.init()
     this.relayClient.dependencies.asyncPaymasterData = this._buildPaymasterData.bind(this)
     if (permitERC20TokenForGas == null) {
@@ -148,7 +148,7 @@ export class TokenPaymasterProvider extends RelayProvider {
 
   async setToken(permitERC20TokenForGas: Address | SupportedTokenSymbols): Promise<void> {
     const chainId = this.origProvider.network.chainId
-    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas as any, chainId) ?? permitERC20TokenForGas.toString().toLowerCase()
+    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas, chainId) ?? permitERC20TokenForGas.toString().toLowerCase()
     if (tokenAddress == null || !isValidAddress(tokenAddress)) {
       throw new Error(`Unable to find token with name/address ${permitERC20TokenForGas} on chainId ${chainId}`)
     }

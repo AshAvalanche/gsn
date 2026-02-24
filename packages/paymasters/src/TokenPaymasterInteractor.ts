@@ -1,5 +1,4 @@
 
-import { type JsonRpcProvider, type ExternalProvider } from '@ethersproject/providers'
 
 import {
   type Address,
@@ -46,7 +45,7 @@ export class TokenPaymasterInteractor {
   ) {
     this.paymasterAddress = paymasterAddress
     this.logger = logger
-    this.provider = provider as any
+    this.provider = provider
   }
 
   async init(): Promise<this> {

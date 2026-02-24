@@ -1,6 +1,4 @@
 import { type Contract, providers } from 'ethers'
-import { type ExternalProvider, type JsonRpcProvider } from '@ethersproject/providers'
-import { type Signer } from '@ethersproject/abstract-signer'
 
 import { TokenPaymasterProvider } from './TokenPaymasterProvider'
 import {
@@ -11,7 +9,7 @@ import {
   type SupportedTokenSymbols
 } from '@opengsn/provider'
 
-async function wrapContract (
+async function wrapContract(
   contract: Contract,
   config: Partial<GSNConfig>,
   overrideDependencies?: Partial<GSNDependencies>
@@ -20,7 +18,7 @@ async function wrapContract (
   return contract.connect(signer)
 }
 
-async function wrapSigner (
+async function wrapSigner(
   signer: Signer,
   config: Partial<GSNConfig>,
   overrideDependencies?: Partial<GSNDependencies>,
@@ -36,7 +34,7 @@ async function wrapSigner (
   }
 
   const gsnProvider = await TokenPaymasterProvider.newProvider(input).init(permitERC20TokenForGas)
-  const gsnExternalProvider = gsnProvider as any as ExternalProvider
+  const gsnExternalProvider = gsnProvider as ExternalProvider
   const ethersProvider = new providers.Web3Provider(gsnExternalProvider)
   const address = await signer.getAddress()
   return ethersProvider.getSigner(address)

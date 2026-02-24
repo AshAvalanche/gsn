@@ -23,7 +23,7 @@ import { createServerLogger } from '@opengsn/logger/dist/ServerWinstonLogger'
 import { type GasPriceFetcher } from './GasPriceFetcher'
 import { type ReputationManager, type ReputationManagerConfiguration } from './ReputationManager'
 
-import { toBN } from 'web3-utils'
+
 import { type Web3MethodsBuilder } from './Web3MethodsBuilder'
 
 export enum LoggingProviderMode {
@@ -387,7 +387,7 @@ export const serverDefaultConfiguration: ServerConfigParams = {
   pastEventsQueryMaxPageSize: Number.MAX_SAFE_INTEGER,
   pastEventsQueryMaxPageCount: 20,
   recentActionAvoidRepeatDistanceBlocks: 10,
-  skipErc165Check: false
+  skipErc165Check: true
 }
 
 const ConfigParamsTypes = {
@@ -593,21 +593,21 @@ export function validatePrivateModeParams(config: ServerConfigParams): void {
 }
 
 export function validateBalanceParams(config: ServerConfigParams): void {
-  const workerTargetBalance = toBN(config.workerTargetBalance)
-  const managerTargetBalance = toBN(config.managerTargetBalance)
-  const managerMinBalance = toBN(config.managerMinBalance)
-  const workerMinBalance = toBN(config.workerMinBalance)
-  if (managerTargetBalance.lt(managerMinBalance)) {
+  const workerTargetBalance = BigInt(config.workerTargetBalance)
+  const managerTargetBalance = BigInt(config.managerTargetBalance)
+  const managerMinBalance = BigInt(config.managerMinBalance)
+  const workerMinBalance = BigInt(config.workerMinBalance)
+  if (managerTargetBalance < managerMinBalance) {
     throw new Error('managerTargetBalance must be at least managerMinBalance')
   }
-  if (workerTargetBalance.lt(workerMinBalance)) {
+  if (workerTargetBalance < workerMinBalance) {
     throw new Error('workerTargetBalance must be at least workerMinBalance')
   }
   if (config.withdrawToOwnerOnBalance == null) {
     return
   }
-  const withdrawToOwnerOnBalance = toBN(config.withdrawToOwnerOnBalance)
-  if (managerTargetBalance.add(workerTargetBalance).gte(withdrawToOwnerOnBalance)) {
+  const withdrawToOwnerOnBalance = BigInt(config.withdrawToOwnerOnBalance)
+  if (managerTargetBalance + workerTargetBalance >= withdrawToOwnerOnBalance) {
     throw new Error('withdrawToOwnerOnBalance must be larger than managerTargetBalance + workerTargetBalance')
   }
 }

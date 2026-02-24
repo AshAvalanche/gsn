@@ -1,8 +1,6 @@
 // TODO: convert to 'commander' format
 import fs from 'fs'
-import Web3 from 'web3'
 import chalk from 'chalk'
-import { type JsonRpcPayload, type JsonRpcResponse } from 'web3-core-helpers'
 import { createPublicClient, createWalletClient, Hex, http, publicActions, type PublicClient, type WalletClient, type PublicActions, type WalletActions, type Client } from 'viem'
 import { HttpServer } from './HttpServer'
 import { RelayServer } from './RelayServer'
@@ -40,33 +38,9 @@ function error(err: string): never {
   process.exit(1)
 }
 
-function sanitizeJsonRpcPayload(request: JsonRpcPayload): JsonRpcPayload {
-  // protect original object from modification
-  const clone = JSON.parse(JSON.stringify(request))
-  const data = clone?.params[0]?.data
-  if (typeof data === 'string' && data.length > 1000) {
-    clone.params[0].data = data.substr(0, 70) + '...'
-  }
-  return clone
-}
-
-function sanitizeJsonRpcResponse(response?: JsonRpcResponse): JsonRpcResponse | undefined {
-  if (response == null) {
-    return response
-  }
-  // protect original object from modification
-  const clone: JsonRpcResponse = JSON.parse(JSON.stringify(response))
-  if (typeof clone.result === 'string' && clone.result.length > 1000) {
-    clone.result = clone.result.substr(0, 70) + '...'
-  }
-  return clone
-}
-
 async function run(): Promise<void> {
   let config: ServerConfigParams
-  let web3provider
-  let ethersJsonRpcProvider_unused // removed
-  let client: Client & PublicActions & WalletActions = null as any
+  let client: (Client & PublicActions & WalletActions) | undefined
   let environment: Environment
   let runPenalizer: boolean
   let reputationManagerConfig: Partial<ReputationManagerConfiguration>
@@ -80,53 +54,12 @@ async function run(): Promise<void> {
     }
     const loggingProvider: LoggingProviderMode = conf.loggingProvider ?? LoggingProviderMode.NONE
     conf.environmentName = conf.environmentName ?? EnvironmentsKeys.ethereumMainnet
-    web3provider = new Web3.providers.HttpProvider(conf.ethereumNodeUrl)
     client = createWalletClient({
       transport: http(conf.ethereumNodeUrl)
     }).extend(publicActions)
 
-    if (loggingProvider !== LoggingProviderMode.NONE) {
-      const orig = web3provider
-      web3provider = {
-        // @ts-ignore
-        send(r, cb) {
-          const startTimestamp = Date.now()
-          switch (loggingProvider) {
-            case LoggingProviderMode.DURATION: {
-              let blockRange = ''
-              if (r?.params[0]?.fromBlock != null) {
-                blockRange = `(${r?.params[0]?.fromBlock as string} - ${r?.params[0]?.toBlock as string})`
-              }
-              console.log('>>> ', r.method, blockRange)
-              break
-            }
-            case LoggingProviderMode.ALL:
-              console.log('>>> ', sanitizeJsonRpcPayload(r))
-              // eslint-disable-next-line
-              if (r && r.params && r.params[0] && r.params[0].topics) {
-                console.log('>>>\n', r.params[0].topics, '\n')
-              }
-              break
-          }
-          // eslint-disable-next-line
-          if (r && r.params && r.params[0] && r.params[0].fromBlock == 1) {
-            console.warn('=== eth_getLogs fromBlock: 1, potentially long operation!')
-          }
-          orig.send(r, (err, res) => {
-            const duration = Date.now() - startTimestamp
-            switch (loggingProvider) {
-              case LoggingProviderMode.DURATION:
-                console.log('<<<', r.method, duration)
-                break
-              case LoggingProviderMode.ALL:
-                console.log('<<<\n', r.method, duration, err, sanitizeJsonRpcResponse(res))
-                break
-            }
-            cb(err, res)
-          })
-        }
-      }
-    }
+    // TODO: if loggingProvider !== LoggingProviderMode.NONE we could add a custom viem transport interceptor
+
     console.log('Resolving server config ...\n');
     ({ config, environment } = await resolveServerConfig(conf, client))
     runPenalizer = config.runPenalizer
@@ -183,7 +116,7 @@ async function run(): Promise<void> {
     logger
   )
   const resolvedDeployment = contractInteractor.getDeployment()
-  const web3MethodsBuilder = new Web3MethodsBuilder(new Web3(web3provider as any), resolvedDeployment)
+  const web3MethodsBuilder = new Web3MethodsBuilder(resolvedDeployment)
 
   console.log('Creating gasPrice fetcher...\n')
   const gasPriceFetcher = new GasPriceFetcher(config.gasPriceOracleUrl, config.gasPriceOraclePath, contractInteractor, logger)

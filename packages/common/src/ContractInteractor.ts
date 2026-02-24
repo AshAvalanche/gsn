@@ -83,12 +83,7 @@ import { AsyncZeroAddressCalldataGasEstimation } from './environments/AsyncZeroA
 import { type FeeHistoryResult } from './web3js/FeeHistoryResult'
 
 // Generic contract type helper - Using interaction to avoid strict Type issues with Viem's inferred types during migration
-export type GsnContract<QT extends Abi | readonly unknown[]> = GetContractReturnType<QT, PublicClient, Address> & {
-  write: any
-  read: any
-  estimateGas: any
-  address: Address
-}
+export type GsnContract<QT extends Abi> = GetContractReturnType<QT, Client & PublicActions & WalletActions, Address>
 
 export interface FilterBlocks {
   fromBlock?: bigint | 'latest' | 'earliest' | 'pending'
@@ -383,40 +378,40 @@ export class ContractInteractor {
   }
 
   _createRecipient(address: Address): GsnContract<typeof ierc2771RecipientAbi> {
-    return getContract({ address, abi: ierc2771RecipientAbi, client: this.client }) as any
+    return getContract({ address, abi: ierc2771RecipientAbi, client: this.client })
   }
 
   _createPaymaster(address: Address): GsnContract<typeof iPaymasterAbi> {
-    return getContract({ address, abi: iPaymasterAbi, client: this.client }) as any
+    return getContract({ address, abi: iPaymasterAbi, client: this.client })
   }
 
   _createRelayHub(address: Address): GsnContract<typeof iRelayHubAbi> {
-    return getContract({ address, abi: iRelayHubAbi, client: this.client }) as any
+    return getContract({ address, abi: iRelayHubAbi, client: this.client })
   }
 
   _createForwarder(address: Address): GsnContract<typeof iForwarderAbi> {
-    return getContract({ address, abi: iForwarderAbi, client: this.client }) as any
+    return getContract({ address, abi: iForwarderAbi, client: this.client })
 
   }
 
   _createStakeManager(address: Address): GsnContract<typeof iStakeManagerAbi> {
-    return getContract({ address, abi: iStakeManagerAbi, client: this.client }) as any
+    return getContract({ address, abi: iStakeManagerAbi, client: this.client })
   }
 
   _createPenalizer(address: Address): GsnContract<typeof iPenalizerAbi> {
-    return getContract({ address, abi: iPenalizerAbi, client: this.client }) as any
+    return getContract({ address, abi: iPenalizerAbi, client: this.client })
   }
 
   _createRelayRegistrar(address: Address): GsnContract<typeof iRelayRegistrarAbi> {
-    return getContract({ address, abi: iRelayRegistrarAbi, client: this.client }) as any
+    return getContract({ address, abi: iRelayRegistrarAbi, client: this.client })
   }
 
   _createERC20(address: Address): GsnContract<typeof ierc20TokenAbi> {
-    return getContract({ address, abi: ierc20TokenAbi, client: this.client }) as any
+    return getContract({ address, abi: ierc20TokenAbi, client: this.client })
   }
 
   _createContract(address: Address, abi: Abi): GsnContract<Abi> {
-    return getContract({ address, abi, client: this.client }) as any
+    return getContract({ address, abi, client: this.client })
   }
 
   async getTokenBalanceFormatted(address: Address): Promise<string> {
@@ -502,7 +497,7 @@ export class ContractInteractor {
 
       // We perform a low-level call to simulate the user transaction or view call
       // Viem CallParameters might expect gasPrice only for legacy, or max... for EIP-1559.
-      // We pass object spread to satisfy types or cast as any.
+      // We pass object spread to satisfy types or cast.
       const callArgs: any = {
         account: from,
         to: relayHub.address,
@@ -575,7 +570,22 @@ export class ContractInteractor {
       args: [
         _.domainSeparatorName,
         BigInt(_.maxAcceptanceBudget),
-        _.relayRequest as any, // struct alignment?
+        {
+          request: {
+            ..._.relayRequest.request,
+            value: BigInt(_.relayRequest.request.value),
+            gas: BigInt(_.relayRequest.request.gas),
+            nonce: BigInt(_.relayRequest.request.nonce),
+            validUntilTime: BigInt(_.relayRequest.request.validUntilTime)
+          },
+          relayData: {
+            ..._.relayRequest.relayData,
+            maxFeePerGas: BigInt(_.relayRequest.relayData.maxFeePerGas),
+            maxPriorityFeePerGas: BigInt(_.relayRequest.relayData.maxPriorityFeePerGas),
+            transactionCalldataGasUsed: BigInt(_.relayRequest.relayData.transactionCalldataGasUsed),
+            clientId: BigInt(_.relayRequest.relayData.clientId)
+          }
+        },
         _.signature,
         _.approvalData
       ]
@@ -657,12 +667,13 @@ export class ContractInteractor {
     if (fromBlock > (toBlock as bigint)) {
       return []
     }
-
+    this.logger.info(`Searching for ${names} events for ${contract.address} between block ${fromBlock} and ${toBlock}`)
     let { pagesForRange: pagesCurrent, rangeSize } = this.getLogsPagesForRange(fromBlock as bigint, toBlock as bigint)
-
+    this.logger.info(`${rangeSize} blocks between ${fromBlock} and ${toBlock}`)
     const relayEventParts: EventData[][] = []
     while (true) {
       const rangeParts = this.splitRange(fromBlock as bigint, toBlock as bigint, pagesCurrent)
+      this.logger.info(`Splitting request for ${rangeSize} blocks into ${pagesCurrent} smaller paginated requests!`)
       try {
         for (const { fromBlock: partFrom, toBlock: partTo } of rangeParts) {
           let attempts = 0
@@ -687,24 +698,27 @@ export class ContractInteractor {
         }
       }
     }
+    this.logger.info(`Founded some ${relayEventParts.flat().length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
     return relayEventParts.flat()
   }
 
   async _getPastEvents(contract: any, names: EventName[], extraTopics: Array<Hex | Hex[] | null>, options: FilterBlocks): Promise<EventData[]> {
-    const eventsAbi = contract.abi.filter((item: any) => item.type === 'event' && names.includes(item.name))
-
+    const eventsAbi = contract.abi.filter((item: any) => item.type === 'event' && names.includes(item.name))[0]
+    this.logger.info(`Requesting ${JSON.stringify(eventsAbi)} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
     const logs = await this.client.getLogs({
       address: contract.address,
       fromBlock: options.fromBlock as bigint,
       toBlock: options.toBlock as bigint,
-      event: eventsAbi.length === 1 ? parseAbiItem(`event ${eventsAbi[0].name}(...)`) as any : undefined,
+      event: eventsAbi,
     })
-
-    return parseEventLogs({
+    this.logger.info(`Found ${logs.length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
+    const events = parseEventLogs({
       abi: contract.abi,
       logs: logs,
       eventName: names
     }) as unknown as EventData[]
+    this.logger.info(`Parsed ${events.length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
+    return events
   }
 
   async getBalance(address: Address, defaultBlock: any = 'latest'): Promise<bigint> {
@@ -801,10 +815,7 @@ export class ContractInteractor {
     gas: bigint,
     relayData: any,
     txDetails: any): Promise<bigint> {
-    return await this.relayHubInstance.read.calculateCharge([gas, relayData], {
-      account: txDetails.from,
-      gas: txDetails.gasLimit,
-    })
+    return await this.relayHubInstance.read.calculateCharge([gas, relayData], txDetails)
   }
 
   async getGasPrice(): Promise<bigint> {
@@ -854,6 +865,11 @@ export class ContractInteractor {
         return await this.client.getBlock({ blockHash: blockHashOrBlockNumber as Hex })
       }
     }
+    const isNumber = typeof blockHashOrBlockNumber === 'number' || typeof blockHashOrBlockNumber === 'bigint'
+    const isNumberString = typeof blockHashOrBlockNumber === 'string' && !isNaN(Number(blockHashOrBlockNumber)) && blockHashOrBlockNumber.trim() !== ''
+    if (isNumber || isNumberString) {
+      return await this.client.getBlock({ blockNumber: BigInt(blockHashOrBlockNumber) })
+    }
     return await this.client.getBlock({ blockTag: blockHashOrBlockNumber })
   }
 
@@ -883,7 +899,7 @@ export class ContractInteractor {
   }
 
   async getStakeInfo(managerAddress: Address): Promise<StakeInfo> {
-    const result = await this.stakeManagerInstance.read.getStakeInfo([managerAddress]) as any
+    const result = await this.stakeManagerInstance.read.getStakeInfo([managerAddress])
     return result[0] as unknown as StakeInfo
   }
 
@@ -1002,6 +1018,6 @@ export class ContractInteractor {
   async getRegisteredWorkers(managerAddress: Address): Promise<Address[]> {
     const topics = address2topic(managerAddress)
     const workersAddedEvents = await this.getPastEventsForHub([topics as Hex], { fromBlock: 1n }, [RelayWorkersAdded])
-    return workersAddedEvents.map(it => (it as any).args.newRelayWorkers).flat()
+    return workersAddedEvents.map(it => (it).args.newRelayWorkers).flat()
   }
 }

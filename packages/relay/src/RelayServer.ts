@@ -1,8 +1,7 @@
 import chalk from 'chalk'
 import { EventEmitter } from 'events'
 import { Hex, toHex } from 'viem'
-
-import { type Block } from '@ethersproject/providers'
+import { type Block } from './RegistrationManager'
 
 import {
   type Address,
@@ -369,19 +368,19 @@ export class RelayServer extends EventEmitter {
     try {
       if (this.transactionType === TransactionType.TYPE_TWO) {
         viewRelayCallRet =
-          await method.call({
+          await method.call!({
             from: this.workerAddress,
             maxFeePerGas: toHex(req.relayRequest.relayData.maxFeePerGas),
             maxPriorityFeePerGas: toHex(req.relayRequest.relayData.maxPriorityFeePerGas),
             gasLimit: maxPossibleGas
-          }, 'pending')
+          }, 'pending', this.contractInteractor.client, this.relayHubContract.address as Address)
       } else {
         viewRelayCallRet =
-          await method.call({
+          await method.call!({
             from: this.workerAddress,
             gasPrice: toHex(req.relayRequest.relayData.maxFeePerGas),
             gasLimit: maxPossibleGas
-          }, 'pending')
+          }, 'pending', this.contractInteractor.client, this.relayHubContract.address as Address)
       }
     } catch (e) {
       throw new Error(`relayCall reverted in server: ${(e as Error).message}`)
@@ -678,7 +677,7 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     if (Number(block.number) <= this.lastScannedBlock) {
       throw new Error('Attempt to scan older block, aborting')
     }
-    if (!this.isReady()) {
+    if (!this._shouldRefreshState(block)) {
       return []
     }
     const currentBlockTimestamp = Number(block.timestamp)
@@ -756,9 +755,14 @@ latestBlock timestamp   | ${latestBlock.timestamp}
     transactionHashes = transactionHashes.concat(
       await this.registrationManager.handlePastEvents(
         hubEventsSinceLastScan, this.lastScannedBlock, currentBlock, currentBlockTimestamp, shouldRegisterAgain))
-    await this.transactionManager.fillMinedBlockDetailsForTransactions(currentBlock)
-    await this.transactionManager.removeArchivedTransactions(currentBlock)
-    const boostingResults = await this._boostStuckPendingTransactions(currentBlock)
+    const currentBlockInfo: ShortBlockInfo = {
+      hash: currentBlock.hash as Hex,
+      number: Number(currentBlock.number),
+      timestamp: Number(currentBlock.timestamp)
+    }
+    await this.transactionManager.fillMinedBlockDetailsForTransactions(currentBlockInfo)
+    await this.transactionManager.removeArchivedTransactions(currentBlockInfo)
+    const boostingResults = await this._boostStuckPendingTransactions(currentBlockInfo)
     if (boostingResults[0].balanceRequiredDetails != null && !boostingResults[0].balanceRequiredDetails.isSufficient) {
       this.logger.error('Server configuration problem! Relay manager cannot afford boosting transactions and may become stuck soon.')
     }

@@ -18,7 +18,7 @@
     "pctRelayFee": 0,
     "deployTestToken": false,
     "minimumStakeTokenAddress": "0x942A9A4adbaB3740b061be641A02969f0Ade46F7",
-    "minimumStakeAmount": "1000000000000000000",
+    "minimumStakeAmount": "1000000000000",
     "gasUsedByPost": 30000,
     "paymasterFee": 15,
     "deployTestPaymaster": false,

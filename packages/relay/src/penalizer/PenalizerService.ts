@@ -1,12 +1,9 @@
 // @ts-ignore
 import abiDecoder from 'abi-decoder'
 import crypto from 'crypto'
-import { Transaction as EthereumJsTransaction, type TxOptions, type TxData } from '@ethereumjs/tx'
-import Common from '@ethereumjs/common'
-import { type TransactionResponse } from '@ethersproject/providers'
-import { type Address } from '@opengsn/common'
-import { bufferToHex, isZeroAddress, type PrefixedHexString, toBuffer } from 'ethereumjs-util'
-import * as ethUtils from 'ethereumjs-util'
+import { parseTransaction, recoverTransactionAddress, keccak256, type Hex, type TransactionSerializable, serializeTransaction, TransactionSerializedLegacy } from 'viem'
+import { type Address, isAddressEqual } from 'viem'
+
 
 import PayMasterABI from '@opengsn/common/dist/interfaces/IPaymaster.json'
 import RelayHubABI from '@opengsn/common/dist/interfaces/IRelayHub.json'
@@ -25,7 +22,8 @@ import {
   gsnRuntimeVersion,
   removeHexPrefix,
   toHex,
-  toNumber
+  toNumber,
+  type PrefixedHexString
 } from '@opengsn/common'
 
 import { replaceErrors } from '@opengsn/common/dist/ErrorReplacerJSON'
@@ -57,23 +55,7 @@ export interface PenalizerDependencies {
   txByNonceService: BlockExplorerInterface
 }
 
-function createWeb3Transaction(transaction: TransactionResponse, rawTxOptions: TxOptions): EthereumJsTransaction {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const gasPrice = '0x' + BigInt(transaction.gasPrice!.toString()).toString(16)
-  const value = '0x' + BigInt(transaction.value.toString()).toString(16)
-  const txData: TxData = {
-    gasLimit: toHex(transaction.gasLimit.toString()),
-    gasPrice,
-    to: transaction.to ?? '',
-    data: transaction.data,
-    nonce: transaction.nonce,
-    value,
-    v: transaction.v,
-    r: transaction.r,
-    s: transaction.s
-  }
-  return new EthereumJsTransaction(txData, rawTxOptions)
-}
+type RecoverableTransaction = `0x02${string}` | `0x01${string}` | `0x03${string}` | `0x04${string}` | TransactionSerializedLegacy
 
 /**
  * types of penalization supported by a penalizer
@@ -120,14 +102,7 @@ export class PenalizerService {
     this.logger = logger
   }
 
-  getRawTxOptions(): TxOptions {
-    return {
-      common: Common.custom({
-        chainId: Number(this.contractInteractor.chainId),
-        defaultHardfork: 'london'
-      })
-    }
-  }
+
 
   async init(startWorker: boolean = true): Promise<void> {
     if (this.initialized) {
@@ -159,41 +134,39 @@ export class PenalizerService {
       }
     }
     this.logger.info(`Validating tx ${req.signedTx}`)
-    // deserialize the tx
-    const rawTxOptions = this.getRawTxOptions()
-    const requestTx = EthereumJsTransaction.fromSerializedTx(toBuffer(req.signedTx), rawTxOptions)
-    const validationResult = await this.validateTransaction(requestTx)
+
+    const requestTx = parseTransaction(req.signedTx as Hex)
+    const validationResult = await this.validateTransaction(req.signedTx as Hex, requestTx)
     if (!validationResult.valid) {
       return {
         message: validationResult.error
       }
     }
 
-    const isMinedTx = await this.isTransactionMined(requestTx)
+    const isMinedTx = await this.isTransactionMined(req.signedTx as Hex)
     if (isMinedTx) {
       return {
         message: MINED_TRANSACTION
       }
     }
 
-    const relayWorker = bufferToHex(requestTx.getSenderAddress().toBuffer())
+    const relayWorker = await recoverTransactionAddress({ serializedTransaction: req.signedTx as RecoverableTransaction })
     // read the relay worker's nonce from blockchain
-    const currentNonce = await this.contractInteractor.getTransactionCount(relayWorker as Address, 'pending')
+    const currentNonce = await this.contractInteractor.getTransactionCount(relayWorker, 'pending')
+
     // if tx nonce > current nonce, publish tx and await
     // otherwise, get mined tx with same nonce. if equals (up to different gasPrice) to received tx, return.
     // Otherwise, penalize.
-    const transactionNonce = requestTx.nonce.toNumber()
+    const transactionNonce = Number(requestTx.nonce)
     if (transactionNonce > currentNonce) {
       // TODO: store it, and see how sender behaves later...
-      //  also, if we have already stored some transaction for this sender, check if these two are in nonce conflict.
-      //  this flow has nothing to do with this particular penalization, so just default to 'storeTxForLater' or something
       return {
         message: NONCE_FORWARD
       }
     }
 
     // run penalize in view mode to see if penalizable
-    const minedTransactionData = await this.txByNonceService.getTransactionByNonce(relayWorker as Address, transactionNonce)
+    const minedTransactionData = await this.txByNonceService.getTransactionByNonce(relayWorker, transactionNonce)
     if (minedTransactionData == null) {
       throw Error(`TxByNonce service failed to fetch tx with nonce ${transactionNonce} of relayer ${relayWorker}`)
     }
@@ -201,12 +174,12 @@ export class PenalizerService {
     if (minedTx == null) {
       throw Error(`Failed to get transaction ${minedTransactionData.hash} from node`)
     }
-    const minedTxBuffers = createWeb3Transaction(minedTx, rawTxOptions)
-    const randomValue = bufferToHex(crypto.randomBytes(32))
-    const penalizationArguments = this.getPenalizeRepeatedNonceArguments(minedTxBuffers, requestTx, randomValue)
+
+    const randomValue = crypto.randomBytes(32).toString('hex')
+    const penalizationArguments = this.getPenalizeRepeatedNonceArguments(minedTx as any, requestTx, `0x${randomValue}`)
     const method = this.getMethod(PenalizationTypes.REPEATED_NONCE, penalizationArguments)
     const isValidPenalization = await this.validatePenalization(method)
-    if (!validationResult.valid) {
+    if (!isValidPenalization.valid) {
       return {
         message: isValidPenalization.error
       }
@@ -223,8 +196,8 @@ export class PenalizerService {
 
   calculateCommitHash(method: any): PrefixedHexString {
     const msgData: string = method.encodeABI()
-    const msgDataHash = `0x${ethUtils.keccak256(Buffer.from(removeHexPrefix(msgData), 'hex')).toString('hex')}`
-    return `0x${ethUtils.keccak256(Buffer.from(removeHexPrefix(msgDataHash + this.managerAddress.slice(2).toLowerCase()), 'hex')).toString('hex')}`
+    const msgDataHash = keccak256(msgData as Hex)
+    return keccak256((msgDataHash + this.managerAddress.slice(2).toLowerCase()) as Hex)
   }
 
   async intervalHandler(): Promise<PrefixedHexString[]> {
@@ -281,9 +254,8 @@ export class PenalizerService {
   }
 
   async penalizeIllegalTransaction(req: AuditRequest): Promise<AuditResponse> {
-    const rawTxOptions = this.getRawTxOptions()
-    const requestTx = EthereumJsTransaction.fromSerializedTx(toBuffer(req.signedTx), rawTxOptions)
-    const validationResult = await this.validateTransaction(requestTx)
+    const requestTx = parseTransaction(req.signedTx as Hex)
+    const validationResult = await this.validateTransaction(req.signedTx as Hex, requestTx)
     if (!validationResult.valid) {
       return {
         message: validationResult.error
@@ -291,8 +263,8 @@ export class PenalizerService {
     }
 
     // TODO: remove duplication
-    const randomValue = bufferToHex(crypto.randomBytes(32))
-    const penalizationArguments = this.getPenalizeIllegalTransactionArguments(requestTx, randomValue)
+    const randomValue = crypto.randomBytes(32).toString('hex')
+    const penalizationArguments = this.getPenalizeIllegalTransactionArguments(requestTx, `0x${randomValue}`)
     const method = this.getMethod(PenalizationTypes.ILLEGAL_TRANSACTION, penalizationArguments)
     const isValidPenalization = await this.validatePenalization(method)
     if (!isValidPenalization.valid) {
@@ -341,7 +313,7 @@ export class PenalizerService {
     return transactionHash
   }
 
-  getPenalizeIllegalTransactionArguments(requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
+  getPenalizeIllegalTransactionArguments(requestTx: TransactionSerializable, randomValue: Hex): PrefixedHexString[] {
     const chainId = this.contractInteractor.chainId
     const { data, signature } = getDataAndSignature(requestTx, chainId)
     return [
@@ -350,7 +322,7 @@ export class PenalizerService {
     ]
   }
 
-  getPenalizeRepeatedNonceArguments(minedTx: EthereumJsTransaction, requestTx: EthereumJsTransaction, randomValue: string): PrefixedHexString[] {
+  getPenalizeRepeatedNonceArguments(minedTx: TransactionSerializable, requestTx: TransactionSerializable, randomValue: Hex): PrefixedHexString[] {
     const chainId = this.contractInteractor.chainId
     const { data: unsignedMinedTx, signature: minedTxSig } = getDataAndSignature(minedTx, chainId)
     const { data: unsignedRequestTx, signature: requestTxSig } = getDataAndSignature(requestTx, chainId)
@@ -361,17 +333,18 @@ export class PenalizerService {
     ]
   }
 
-  async validateTransaction(requestTx: EthereumJsTransaction): Promise<{ valid: boolean, error?: string }> {
-    const txHash = requestTx.hash().toString('hex')
-    if (!requestTx.verifySignature()) {
+  async validateTransaction(signedTx: Hex, requestTx: TransactionSerializable): Promise<{ valid: boolean, error?: string }> {
+    const txHash = keccak256(signedTx)
+    if (requestTx.r == null || requestTx.s == null || (requestTx.v == null && requestTx.yParity == null)) {
       return {
         valid: false,
         error: INVALID_SIGNATURE
       }
     }
-    const relayWorker = bufferToHex(requestTx.getSenderAddress().toBuffer())
-    const relayManager = await this.contractInteractor.relayHubInstance.read.getWorkerManager([relayWorker as Address])
-    if (isZeroAddress(relayManager)) {
+    const relayWorker = await recoverTransactionAddress({ serializedTransaction: signedTx as RecoverableTransaction })
+    const relayManager = await this.contractInteractor.relayHubInstance.read.getWorkerManager([relayWorker])
+    // @ts-ignore
+    if (isAddressEqual(relayManager, '0x0000000000000000000000000000000000000000')) {
       return {
         valid: false,
         error: UNKNOWN_WORKER
@@ -390,16 +363,16 @@ export class PenalizerService {
     return { valid: true }
   }
 
-  async isTransactionMined(requestTx: EthereumJsTransaction): Promise<boolean> {
-    const txFromNode = await this.contractInteractor.getTransaction(bufferToHex(requestTx.hash()) as Address)
+  async isTransactionMined(signedTx: Hex): Promise<boolean> {
+    const txFromNode = await this.contractInteractor.getTransaction(keccak256(signedTx))
     return txFromNode != null
   }
 
   async validatePenalization(method: any): Promise<{ valid: boolean, error?: string }> {
     try {
-      const res = await method.call({
+      const res = await method.call!({
         from: constants.BURN_ADDRESS
-      })
+      }, 'pending', this.contractInteractor.client, this.contractInteractor.penalizerInstance.address)
       this.logger.debug(`res is ${JSON.stringify(res)}`)
       return {
         valid: true

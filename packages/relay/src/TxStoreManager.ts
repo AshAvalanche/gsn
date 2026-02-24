@@ -1,7 +1,7 @@
 import Nedb from '@seald-io/nedb'
 import ow from 'ow/dist'
-import { type PrefixedHexString } from 'ethereumjs-util'
-
+import { type PrefixedHexString } from '@opengsn/common'
+import { type Hex } from 'viem'
 import { type Address, isSameAddress, type LoggerInterface } from '@opengsn/common'
 
 import { type ServerAction, type StoredTransaction } from './StoredTransaction'
@@ -40,7 +40,7 @@ export class TxStoreManager {
     }
     const tx1: StoredTransaction = {
       ...tx,
-      txId: tx.txId.toLowerCase(),
+      txId: tx.txId.toLowerCase() as Hex,
       nonceSigner
     }
     const existing = await this.txstore.findOneAsync({ nonceSigner: tx1.nonceSigner })
@@ -117,7 +117,6 @@ export class TxStoreManager {
     const storedMatchingTxs = allTransactions.filter(it => it.serverAction === serverAction && (destination == null || isSameAddress(it.to, destination)))
     const pendingTxs = storedMatchingTxs.filter(it => it.minedBlock?.number == null)
     if (pendingTxs.length !== 0) {
-      this.logger.info(`Found ${pendingTxs.length} pending transactions that match a query: ${JSON.stringify(pendingTxs)}`)
       return true
     }
     const recentlyMinedTxs = storedMatchingTxs.filter(it => {
@@ -125,7 +124,6 @@ export class TxStoreManager {
       return minedBlockNumber != null && currentBlock - minedBlockNumber <= recencyBlockCount
     })
     if (recentlyMinedTxs.length !== 0) {
-      this.logger.info(`Found ${recentlyMinedTxs.length} recently mined transactions that match a query: ${JSON.stringify(recentlyMinedTxs)}`)
       return true
     }
     return false

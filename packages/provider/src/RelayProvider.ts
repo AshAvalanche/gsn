@@ -1,20 +1,7 @@
 /* eslint-disable no-void */
 // @ts-ignore
 
-import { BigNumber } from '@ethersproject/bignumber'
-
-import { type TypedMessage } from '@metamask/eth-sig-util'
-import {
-  type ExternalProvider,
-  type JsonRpcProvider,
-  type JsonRpcSigner,
-  type TransactionReceipt,
-  type TransactionRequest,
-  Web3Provider
-} from '@ethersproject/providers'
-import { Interface, type LogDescription } from '@ethersproject/abi'
-
-import { type Eip1193Provider, type BrowserProvider, type Signer as SignerV6 } from 'ethers-v6/providers'
+import { type Abi, decodeEventLog, type Log } from 'viem'
 
 import {
   type Address,
@@ -36,9 +23,56 @@ import relayHubAbi from '@opengsn/common/dist/interfaces/IRelayHub.json'
 import { type AccountKeypair } from './AccountManager'
 import { type GsnEvent } from './GsnEvents'
 import { _dumpRelayingResult, type GSNUnresolvedConstructorInput, RelayClient, type RelayingResult } from './RelayClient'
-import { type Signer } from '@ethersproject/abstract-signer'
+import { type WrappedProvider, type WrappedSigner } from './WrappedProviderTypes'
 
 export type JsonRpcCallback = (error: Error | null, result?: JsonRpcResponse) => void
+
+export interface GsnReceiptLog {
+  address: string
+  topics: string[]
+  data: string
+  blockNumber: number
+  transactionHash: string
+  transactionIndex: number
+  blockHash: string
+  logIndex?: number
+  removed?: boolean
+}
+
+export interface GsnTransactionReceipt {
+  type?: number
+  to: string
+  from: string
+  contractAddress: string
+  logsBloom: string
+  blockHash: string
+  transactionHash: string
+  transactionIndex: number
+  gasUsed: bigint | number
+  logs: GsnReceiptLog[]
+  blockNumber: number
+  cumulativeGasUsed: bigint | number
+  effectiveGasPrice: bigint | number
+  status: string | number
+  // GSN-specific extra fields
+  actualTransactionHash?: string
+  hash?: string
+}
+
+export interface GsnTransactionConfig {
+  from?: string
+  to?: string
+  data?: string
+  value?: string
+  gas?: string
+  gasPrice?: string
+  maxFeePerGas?: string
+  maxPriorityFeePerGas?: string
+  nonce?: number
+  chainId?: number
+  type?: number
+  gasLimit?: bigint | number
+}
 
 /**
  * This data can later be used to optimize creation of Transaction Receipts
@@ -54,10 +88,10 @@ const TX_NOTFOUND = 'tx-notfound'
 
 const BLOCKS_FOR_LOOKUP = 5000
 
-export class RelayProvider implements ExternalProvider, Eip1193Provider {
-  protected origProvider!: JsonRpcProvider
-  protected origSigner!: JsonRpcSigner
-  private _origProviderSend!: (method: string, params: any[]) => Promise<any>
+export class RelayProvider {
+  protected origProvider!: WrappedProvider
+  protected origSigner!: WrappedSigner
+  private _origProviderSend!: (method: string, params: unknown[]) => Promise<unknown>
   private asyncSignTypedData?: SignTypedDataCallback
   protected readonly submittedRelayRequests = new Map<string, SubmittedRelayRequestInfo>()
   protected config!: GSNConfig
@@ -69,69 +103,17 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
   connected!: boolean
 
   /**
-   * Warning. This method has been deprecated due to ambiguity of the term 'Provider'.
-   * Library-specific methods are created instead.
-   * See: {@link newWeb3Provider},  {@link newEthersV5Provider}, {@link newEthersV6Provider}
-   * @deprecated
-   */
-  static newProvider(...args: any[]): any {
-    throw new Error(
-      'This method has been deprecated to avoid confusion. Please use one of the following:\n' +
-      'newWeb3Provider - to create an EIP-1193 Provider compatible with Web3.js\n' +
-      'newEthersV5Provider - to create a pair of Provider and Signer objects compatible with Ethers.js v5\n' +
-      'newEthersV6Provider - to create a pair of Provider and Signer objects compatible with Ethers.js v6'
-    )
-  }
-
-  /**
-   * Create a GSN Provider that is compatible with both {@link ExternalProvider} and {@link Eip1193Provider} interfaces
+   * Create a GSN RelayProvider
    */
   static async newWeb3Provider(input: GSNUnresolvedConstructorInput): Promise<RelayProvider> {
     return await new RelayProvider(new RelayClient(input)).init()
   }
 
-  /**
-   * Create a GSN Provider and Signer that are compatible with {@link Web3Provider} and {@link Signer} interfaces
-   */
-  static async newEthersV5Provider(input: GSNUnresolvedConstructorInput): Promise<{
-    relayProvider: RelayProvider
-    gsnProvider: Web3Provider
-    gsnSigner: Signer
-  }> {
-    const relayProvider = await RelayProvider.newWeb3Provider(input)
-    if (relayProvider.relayClient.isUsingEthersV6()) {
-      throw new Error('Creating Ethers v5 GSN Provider with Ethers v6 input is forbidden!')
-    }
-    const gsnProvider = new Web3Provider(relayProvider)
-    const gsnSigner = gsnProvider.getSigner()
-    return { gsnProvider, gsnSigner, relayProvider }
-  }
-
-  /**
-   * @experimental support for Ethers.js v6 in GSN is highly experimental!
-   * Create a GSN Provider and Signer that are compatible with {@link BrowserProvider} and {@link SignerV6} interfaces
-   */
-  static async newEthersV6Provider(input: GSNUnresolvedConstructorInput): Promise<{
-    relayProvider: RelayProvider
-    gsnProvider: BrowserProvider
-    gsnSigner: SignerV6
-  }> {
-    const { BrowserProvider } = await import('ethers-v6/providers')
-    const relayProvider = await RelayProvider.newWeb3Provider(input)
-    if (!relayProvider.relayClient.isUsingEthersV6()) {
-      throw new Error('Creating Ethers v6 GSN provider with Ethers v5 input is forbidden!')
-    }
-    // Warning: types imported from 'ethers-v6' are not technically "same" as types of dynamically imported libraries
-    const gsnProvider: any = new BrowserProvider(relayProvider)
-    const gsnSigner = await gsnProvider.getSigner()
-    return { gsnProvider, gsnSigner, relayProvider }
-  }
-
   constructor(
     relayClient: RelayClient
   ) {
-    if ((relayClient as any).send != null) {
-      throw new Error('Using new RelayProvider() constructor directly is deprecated.\nPlease create provider using RelayProvider.newProvider({})')
+    if ((relayClient as unknown as Record<string, unknown>).send != null) {
+      throw new Error('Using new RelayProvider() constructor directly is deprecated.\nPlease create provider using RelayProvider.newWeb3Provider({})')
     }
     this.relayClient = relayClient
     this.logger = this.relayClient.logger
@@ -311,7 +293,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     if (!txHash.startsWith('0x')) {
       txHash = relayRequestID
     }
-    const tx = await this._origProviderSend('eth_getTransactionByHash', [txHash])
+    const tx = await this._origProviderSend('eth_getTransactionByHash', [txHash]) as Record<string, unknown> | null
     if (tx != null) {
       // must return exactly what was requested...
       tx.hash = relayRequestID
@@ -446,7 +428,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * If the transaction can still be mined, returns "null" like a regular RPC call would do
    */
   async _createTransactionReceiptForRelayRequestID(
-    relayRequestID: string): Promise<TransactionReceipt | null> {
+    relayRequestID: string): Promise<GsnTransactionReceipt | null> {
     const transactionHash = await this.getTransactionHashFromRequestId(relayRequestID)
     if (transactionHash === TX_FUTURE) {
       return null
@@ -454,73 +436,63 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     if (transactionHash === TX_NOTFOUND) {
       return this._createTransactionRevertedReceipt()
     }
-    const originalTransactionReceipt = await this.origProvider.send('eth_getTransactionReceipt', [transactionHash])
+    const originalTransactionReceipt = await this.origProvider.send('eth_getTransactionReceipt', [transactionHash]) as GsnTransactionReceipt | null
     if (originalTransactionReceipt == null) {
       return null
     }
     return this._getTranslatedGsnResponseResult(originalTransactionReceipt, relayRequestID)
   }
 
-  _getTranslatedGsnResponseResult(respResult: TransactionReceipt, relayRequestID?: string): TransactionReceipt {
-    const fixedTransactionReceipt = Object.assign({}, respResult)
-    const isUsingEthersV6 = this.relayClient.isUsingEthersV6()
-    if (isUsingEthersV6) {
-      // @ts-ignore
-      fixedTransactionReceipt.confirmations = () => {
-        return 77777
-      }
-    }
-    // adding non declared field to receipt object - can be used in tests
-    // @ts-ignore
+  _getTranslatedGsnResponseResult(respResult: GsnTransactionReceipt, relayRequestID?: string): GsnTransactionReceipt {
+    const fixedTransactionReceipt: GsnTransactionReceipt = { ...respResult }
     fixedTransactionReceipt.actualTransactionHash = fixedTransactionReceipt.transactionHash
     fixedTransactionReceipt.transactionIndex = respResult.transactionIndex ?? 7777
     fixedTransactionReceipt.logs = respResult.logs ?? []
     fixedTransactionReceipt.logs.forEach((it) => {
-      // @ts-ignore
-      it.logIndex = it.logIndex ?? it.index
+      if (it.logIndex == null) {
+        it.logIndex = (it as unknown as { index?: number }).index ?? 0
+      }
     })
     fixedTransactionReceipt.transactionHash = relayRequestID ?? fixedTransactionReceipt.transactionHash
-    // TODO: this was never intended, but it seems 'hash' is read by Ethers v6
-    // @ts-ignore
     fixedTransactionReceipt.hash = fixedTransactionReceipt.actualTransactionHash
 
-    // older Web3.js versions require 'status' to be an integer. Will be set to '0' if needed later in this method.
-    // @ts-ignore
     fixedTransactionReceipt.status = '1'
     if (respResult.logs.length === 0) {
       return fixedTransactionReceipt
     }
-    const iface = new Interface(relayHubAbi)
-    const logs: Array<LogDescription | undefined> = respResult.logs.map(
-      it => {
-        try {
-          return iface.parseLog(it)
-        } catch (e) {
-          return undefined
-        }
+    const abi = relayHubAbi as Abi
+    const decodedLogs = respResult.logs.map(log => {
+      try {
+        return decodeEventLog({
+          abi,
+          data: log.data as Hex,
+          topics: log.topics as [Hex, ...Hex[]]
+        })
+      } catch (_e) {
+        return undefined
       }
-    )
-    const paymasterRejectedEvents = logs.find((e) => e != null && e.name === 'TransactionRejectedByPaymaster')
+    })
+    const paymasterRejectedEvent = decodedLogs.find(e => e != null && e.eventName === 'TransactionRejectedByPaymaster')
 
-    if (paymasterRejectedEvents !== null && paymasterRejectedEvents !== undefined) {
-      const paymasterRejectionReason: string = paymasterRejectedEvents.args.reason
+    if (paymasterRejectedEvent != null) {
+      const args = paymasterRejectedEvent.args as unknown as Record<string, unknown>
+      const paymasterRejectionReason = args.reason as string | undefined
       if (paymasterRejectionReason !== undefined) {
         this.logger.info(`Paymaster rejected on-chain: ${paymasterRejectionReason}. changing status to zero`)
-        // @ts-ignore
         fixedTransactionReceipt.status = '0'
       }
       return fixedTransactionReceipt
     }
 
-    const transactionRelayed = logs.find((e: any) => e != null && e.name === 'TransactionRelayed')
-    if (transactionRelayed != null) {
-      const transactionRelayedStatus: number = transactionRelayed.args.status
+    const transactionRelayedEvent = decodedLogs.find(e => e != null && e.eventName === 'TransactionRelayed')
+    if (transactionRelayedEvent != null) {
+      const args = transactionRelayedEvent.args as unknown as Record<string, unknown>
+      const transactionRelayedStatus = args.status as number | undefined
       if (transactionRelayedStatus !== undefined) {
-        const status: string = transactionRelayedStatus.toString()
+        const status = transactionRelayedStatus.toString()
         // 0 signifies success
         if (status !== '0') {
           this.logger.info(`reverted relayed transaction, status code ${status}. changing status to zero`)
-          // @ts-ignore
           fixedTransactionReceipt.status = '0'
         }
       }
@@ -608,8 +580,12 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
 
   async _signTransaction(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
-    const transactionConfig: TransactionRequest = payload.params?.[0]
-    const from = transactionConfig?.from as string
+    const transactionConfig = payload.params?.[0] as GsnTransactionConfig | undefined
+    if (transactionConfig == null) {
+      this.origProviderSend(payload, callback)
+      return
+    }
+    const from = transactionConfig.from as string
     if (from != null && this.isEphemeralAccount(from as unknown as Address)) {
       const result = await this.relayClient.dependencies.accountManager.signTransaction(transactionConfig, from as unknown as Address)
       const rpcResponse = {
@@ -623,13 +599,13 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     this.origProviderSend(payload, callback)
   }
 
-  _signTypedData(payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  async _signTypedData(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
     const from = payload.params?.[0] as string
-    const typedData: TypedMessage<any> = payload.params?.[1]
+    const typedData = payload.params?.[1] as Record<string, unknown>
     if (from != null && this.isEphemeralAccount(from as unknown as Address)) {
       this.logger.debug(`Using ephemeral key for address ${from} to sign a Relay Request or a Typed Message`)
-      const result = this.relayClient.dependencies.accountManager.signTypedData(typedData, from as unknown as Address)
+      const result = await this.relayClient.dependencies.accountManager.signTypedData(typedData, from as unknown as Address)
       const rpcResponse = {
         id,
         result,
@@ -722,18 +698,8 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     })
   }
 
-  _createTransactionRevertedReceipt(): TransactionReceipt {
-    let confirmations: any = 0
-    const isUsingEthersV6 = this.relayClient.isUsingEthersV6()
-    if (isUsingEthersV6) {
-      confirmations = () => {
-        return 77777
-      }
-    }
+  _createTransactionRevertedReceipt(): GsnTransactionReceipt {
     return {
-      // TODO: I am not sure about these two, these were not required in Web3.js
-      confirmations,
-      byzantium: false,
       type: 0,
       to: '',
       from: '',
@@ -742,12 +708,12 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
       blockHash: '',
       transactionHash: '',
       transactionIndex: 0,
-      gasUsed: BigNumber.from(0),
+      gasUsed: 0n,
       logs: [],
       blockNumber: 0,
-      cumulativeGasUsed: BigNumber.from(0),
-      effectiveGasPrice: BigNumber.from(0),
-      status: 0 // failure
+      cumulativeGasUsed: 0n,
+      effectiveGasPrice: 0n,
+      status: '0'
     }
   }
 }

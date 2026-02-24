@@ -151,7 +151,7 @@ export class CommandsLogic {
       const index = parseInt(derivationIndex)
       account = mnemonicToAccount(mnemonic, {
         path: `m/44'/60'/0'/0/${index}` as any,
-        ...(derivationPath != null ? { path: derivationPath as any } : {})
+        ...(derivationPath != null ? { path: derivationPath } : {})
       })
       this.logger.warn(`Using mnemonic account ${account.address}`)
     } else if (privateKey != null) {
@@ -182,7 +182,7 @@ export class CommandsLogic {
     return this
   }
 
-  async findWealthyAccount(requiredBalance = parseEther('0.5')): Promise<string> {
+  async findWealthyAccount(requiredBalance = parseEther('0.002')): Promise<string> {
     let accounts: readonly ViemAddress[] = []
     const balances: string[] = []
     try {
@@ -275,6 +275,7 @@ export class CommandsLogic {
           error: 'Nothing to do. Relayer already registered'
         }
       }
+      this.logger.info(`Relayer is not ready at ${options.relayUrl}. Responce: ${JSON.stringify(response)}`)
       const chainId = this.contractInteractor.chainId
       if (response.chainId !== chainId.toString()) {
         throw new Error(`wrong chain-id: Relayer on (${response.chainId}) but our provider is on (${chainId})`)
@@ -282,26 +283,39 @@ export class CommandsLogic {
       if (!isSameAddress(response.ownerAddress, options.from)) {
         throw new Error(`Relayer configured with wrong owner: ${response.ownerAddress}, our account: ${options.from}`)
       }
+      this.logger.info(`Relayer is ready at ${options.relayUrl}`)
       const relayAddress = response.relayManagerAddress as Address
       const relayHubAddress = response.relayHubAddress as Address
       await this.contractInteractor._resolveDeploymentFromRelayHub(relayHubAddress)
+      this.logger.info(`Getting stake info for relay ${relayAddress}`)
 
+      console.log('DEBUG: about to get stake manager address')
       const relayHub = this.contractInteractor.relayHubInstance
       const stakeManagerAddress = await relayHub.read.getStakeManager()
+      console.log('DEBUG: got stake manager address', stakeManagerAddress)
+
       const stakeManager = await this.contractInteractor._createStakeManager(stakeManagerAddress)
+      console.log('DEBUG: about to get stake info')
       const { stake, unstakeDelay, owner, token } = await this.contractInteractor.getStakeInfo(relayAddress as Address)
+      console.log('DEBUG: got stake info')
 
       let stakingToken = options.token
       if (stakingToken == null) {
+        this.logger.info(`No token specified, using first token from relay hub`)
         stakingToken = await this._findFirstToken(relayHubAddress) as Hex
       }
 
       if (!(isSameAddress(token, stakingToken) || isSameAddress(token, constants.ZERO_ADDRESS))) {
         throw new Error(`Cannot use token ${stakingToken}. Relayer already uses token: ${token}`)
       }
+
       const stakingTokenContract = await this.contractInteractor._createERC20(stakingToken)
-      console.log("stakingTokenContract.read?", !!stakingTokenContract.read); const tokenDecimals = await stakingTokenContract.read.decimals()
+      this.logger.info(`Created stakingTokenContract ${JSON.stringify(stakingTokenContract.address)}`)
+      console.log('DEBUG: about to get token decimals')
+      const tokenDecimals = await stakingTokenContract.read.decimals()
+      console.log('DEBUG: about to get token symbol')
       const tokenSymbol = await stakingTokenContract.read.symbol()
+      this.logger.info(`Token decimals: ${tokenDecimals}, symbol: ${tokenSymbol}`)
 
       const stakeParam = BigInt(Math.floor(toNumber(options.stake) * Math.pow(10, Number(tokenDecimals))))
 
@@ -312,7 +326,7 @@ export class CommandsLogic {
       if (owner !== constants.ZERO_ADDRESS && !isSameAddress(owner, options.from)) {
         throw new Error(`Already owned by ${owner}, our account=${options.from}`)
       }
-
+      this.logger.info(`Relayer is owned by ${owner}`)
       const bal = await this.contractInteractor.getBalance(relayAddress)
       const fundsBigInt = typeof options.funds === 'bigint' ? options.funds : BigInt(options.funds.toString())
       if (bal > fundsBigInt) {
@@ -320,11 +334,14 @@ export class CommandsLogic {
       } else {
         this.logger.info('Funding relayer')
 
+        console.log('DEBUG: about to send transaction')
         const txHash = await this.walletClient.sendTransaction({
           to: relayAddress as ViemAddress,
           value: BigInt(options.funds.toString()),
-          chain: null
+          chain: null,
+          account: this.getViemAccount(options.from)
         } as any)
+        console.log('DEBUG: sent transaction', txHash)
         transactions.push(txHash)
         await this.walletClient.waitForTransactionReceipt({ hash: txHash })
       }
@@ -349,8 +366,8 @@ export class CommandsLogic {
       ) {
         this.logger.info('Relayer already staked')
       } else {
-        const config = (await relayHub.read.getConfiguration()) as any
-        const minimumStakeForToken = await relayHub.read.getMinimumStakePerToken([stakingToken as any]) as bigint
+        const config = (await relayHub.read.getConfiguration())
+        const minimumStakeForToken = await relayHub.read.getMinimumStakePerToken([stakingToken]) as bigint
         if (minimumStakeForToken > BigInt(stakeParam.toString())) {
           throw new Error(`Given stake ${formatToken(stakeParam)} too low for the given hub ${formatToken(minimumStakeForToken)} and token ${stakingToken}`)
         }
@@ -366,16 +383,18 @@ export class CommandsLogic {
           ? ''
           : ` (already has ${formatToken(stake)})`)
 
-        const tokenBalance = await stakingTokenContract.read.balanceOf([options.from as any]) as bigint
+        const tokenBalance = await stakingTokenContract.read.balanceOf([options.from]) as bigint
         if (tokenBalance < BigInt(stakeValue.toString()) && options.wrap) {
           this.logger.info(`Wrapping ${formatToken(stakeValue)}`)
           let depositTx: any
           try {
-            depositTx = await stakingTokenContract.write.deposit([], {
+            console.log('DEBUG: about to call deposit()')
+            depositTx = await stakingTokenContract.write.deposit({
               ...sendOptions,
               chain: null,
+              value: BigInt(stakeValue.toString()),
               account: this.getViemAccount(options.from)
-            } as any)
+            })
           } catch (e) {
             throw new Error('No deposit() method on default token. is it wrapped ETH?')
           }
@@ -383,11 +402,12 @@ export class CommandsLogic {
           await this.walletClient.waitForTransactionReceipt({ hash: depositTx })
         }
 
-        const currentAllowance = await stakingTokenContract.read.allowance([options.from, stakeManager.address] as any) as bigint
+        const currentAllowance = await stakingTokenContract.read.allowance([options.from, stakeManager.address]) as bigint
         this.logger.info(`Current allowance: ${formatToken(currentAllowance)}`)
         if (currentAllowance < BigInt(stakeValue.toString())) {
           this.logger.info(`Approving ${formatToken(stakeValue)} to StakeManager`)
-          const approveTx = await stakingTokenContract.write.approve([stakeManager.address, stakeValue] as any, {
+          console.log('DEBUG: about to call approve()')
+          const approveTx = await stakingTokenContract.write.approve([stakeManager.address, stakeValue], {
             ...sendOptions,
             from: options.from,
             chain: null,
@@ -398,8 +418,9 @@ export class CommandsLogic {
           await this.walletClient.waitForTransactionReceipt({ hash: approveTx })
         }
 
+        console.log('DEBUG: about to call stakeForRelayManager()')
         const stakeTx = await stakeManager
-          .write.stakeForRelayManager([stakingToken, relayAddress, BigInt(options.unstakeDelay), stakeValue] as any, {
+          .write.stakeForRelayManager([stakingToken, relayAddress, BigInt(options.unstakeDelay), stakeValue], {
             ...sendOptions,
             chain: null,
             account: this.getViemAccount(options.from)
@@ -410,15 +431,16 @@ export class CommandsLogic {
       }
 
       try {
-        await relayHub.read.verifyRelayManagerStaked([relayAddress as any])
+        await relayHub.read.verifyRelayManagerStaked([relayAddress])
         this.logger.info('Relayer already authorized')
       } catch (e: any) {
         if (e.message.match(/not authorized/) == null) {
           this.logger.info(`verifyRelayManagerStaked reverted with: ${e.message as string}`)
         }
         this.logger.info('Authorizing relayer for hub')
+        console.log('DEBUG: about to call authorizeHubByOwner()')
         const authorizeTx = await stakeManager
-          .write.authorizeHubByOwner([relayAddress, relayHubAddress] as any, { ...sendOptions, account: this.getViemAccount(options.from) } as any)
+          .write.authorizeHubByOwner([relayAddress, relayHubAddress], { ...sendOptions, account: this.getViemAccount(options.from) })
         // @ts-ignore
         transactions.push(authorizeTx)
         await this.walletClient.waitForTransactionReceipt({ hash: authorizeTx })
@@ -443,20 +465,23 @@ export class CommandsLogic {
     // Note: getPastEventsForHub logic in ContractInteractor handles creation block?
     // But we need getCreationBlock explicitly.
     const relayHub = await this.contractInteractor._createRelayHub(relayHubAddress as Address)
-    // @ts-ignore
+
     const fromBlock = await relayHub.read.getCreationBlock()
     const blockNumber = await this.contractInteractor.getBlockNumber()
     const toBlock = Number(fromBlock) + 5000 > Number(blockNumber) ? Number(blockNumber) : Number(fromBlock) + 5000
-    // const tokens = await this.contractInteractor.getPastEventsForHub([null], {
-    //   fromBlock: BigInt(fromBlock),
-    //   // @ts-ignore
-    //   toBlock: BigInt(toBlock)
-    // }, ['StakingTokenDataChanged'])
-    // if (tokens.length === 0) {
-    //   throw new Error(`no registered staking tokens on RelayHub ${relayHubAddress}`)
-    // }
-    // return tokens[0].args.token
-    return "0x1111111111111111111111111111111111111111" as Hex
+    this.logger.info(`Searching for StakingTokenDataChanged events for ${relayHubAddress} between block ${fromBlock} and ${toBlock}`)
+    const tokens = await this.contractInteractor.getPastEventsForHub([null], {
+      fromBlock: BigInt(fromBlock),
+      toBlock: BigInt(toBlock)
+    }, ['StakingTokenDataChanged'])
+
+    if (tokens.length === 0) {
+      throw new Error(`no registered staking tokens on RelayHub ${relayHubAddress}`)
+    }
+    this.logger.info(`Found ${tokens.length} staking tokens on RelayHub ${relayHubAddress}`)
+    this.logger.info(`First token is ${tokens[0].args.token}`)
+    return tokens[0].args.token
+    // return "0x1111111111111111111111111111111111111111" as Hex
   }
 
   async displayManagerBalances(config: ServerConfigParams, keyManager: KeyManager): Promise<void> {
@@ -531,16 +556,16 @@ export class CommandsLogic {
         })
 
         if (options.broadcast) {
-          const signedTx = options.keyManager.signTransaction(relayManager, {
+          const signedTxInfo = await options.keyManager.signTransaction(relayManager, {
             to: options.config.relayHubAddress,
-            value: 0,
-            gasLimit,
-            gasPrice,
-            data: Buffer.from(encodedCall.slice(2), 'hex'),
-            nonce
+            value: 0n,
+            gasLimit: BigInt(gasLimit),
+            gasPrice: BigInt(parseInt(gasPrice, 16)),
+            data: encodedCall,
+            nonce: BigInt(nonce)
           } as any)
-          this.logger.info(`signed withdrawal hex tx: ${signedTx.rawTx}`)
-          const txHash = await this.contractInteractor.broadcastTransaction(signedTx.rawTx)
+          this.logger.info(`signed withdrawal hex tx: ${signedTxInfo.rawTx}`)
+          const txHash = await this.contractInteractor.broadcastTransaction(signedTxInfo.rawTx)
           transactions.push(txHash)
         }
       }
@@ -595,7 +620,7 @@ export class CommandsLogic {
     }, deployOptions.relayHubAddress, { ...options }, deployOptions.skipConfirmation)
 
     if (!isSameAddress(await rInstance.read.getRelayRegistrar() as Address, rrInstance.address)) {
-      const tx = await rInstance.write.setRegistrar([rrInstance.address] as any, { chain: null })
+      const tx = await rInstance.write.setRegistrar([rrInstance.address], { chain: null })
       await this.walletClient.waitForTransactionReceipt({ hash: tx })
     }
 
@@ -620,7 +645,7 @@ export class CommandsLogic {
     if (deployOptions.deployTestToken ?? false) {
       ttInstance = await this.getContractInstance(TestWrappedNativeToken, {}, undefined, { ...options }, deployOptions.skipConfirmation)
       this.logger.info('Setting minimum stake of 1 TestWeth on Hub')
-      const tx = await rInstance.write.setMinimumStakes([[ttInstance.address] as any, [BigInt(1e18)] as any], { chain: null })
+      const tx = await rInstance.write.setMinimumStakes([[ttInstance.address], [BigInt(1e18)]], { chain: null })
       await this.walletClient.waitForTransactionReceipt({ hash: tx })
       stakingTokenAddress = ttInstance.address
     }
@@ -632,7 +657,7 @@ export class CommandsLogic {
     const formatToken = (val: any): string => formatTokenAmount(BigInt(val.toString()), Number(tokenDecimals), stakingTokenAddress ?? '0x', tokenSymbol)
 
     this.logger.info(`Setting minimum stake of ${formatToken(deployOptions.minimumTokenStake)}`)
-    const tx = await rInstance.write.setMinimumStakes([[stakingTokenAddress] as any, [BigInt(deployOptions.minimumTokenStake)] as any], { chain: null })
+    const tx = await rInstance.write.setMinimumStakes([[stakingTokenAddress], [BigInt(deployOptions.minimumTokenStake)]], { chain: null })
     await this.walletClient.waitForTransactionReceipt({ hash: tx })
     this.deployment = {
       relayHubAddress: rInstance.address,
@@ -644,8 +669,8 @@ export class CommandsLogic {
       paymasterAddress: pmInstance?.address ?? constants.ZERO_ADDRESS
     }
 
-    await this.contractInteractor.initDeployment(this.deployment as any)
-    return this.deployment as any
+    await this.contractInteractor.initDeployment(this.deployment)
+    return this.deployment
   }
 
   private async getContractInstance(json: any, constructorArgs: any, address: Address | undefined, options: Required<SendOptions>, skipConfirmation: boolean = false): Promise<GsnContract<Abi>> {
@@ -683,7 +708,7 @@ export class CommandsLogic {
 
   async deployPaymaster(options: Required<SendOptions>, hub: Address, fInstance: any, skipConfirmation: boolean | undefined): Promise<GsnContract<Abi>> {
     const pmInstance = await this.getContractInstance(Paymaster, {}, undefined, { ...options }, skipConfirmation)
-    const tx1 = await pmInstance.write.setRelayHub([hub] as any, { chain: null })
+    const tx1 = await pmInstance.write.setRelayHub([hub], { chain: null })
     await this.walletClient.waitForTransactionReceipt({ hash: tx1 })
     const tx2 = await pmInstance.write.setTrustedForwarder([fInstance.address], { chain: null })
     await this.walletClient.waitForTransactionReceipt({ hash: tx2 })

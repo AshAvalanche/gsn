@@ -42,9 +42,6 @@
     "web3-utils": "^1.7.4"
   },
   "devDependencies": {
-    "@ethersproject/abi": "^5.6.4",
-    "@ethersproject/abstract-signer": "^5.7.0",
-    "@ethersproject/providers": "^5.7.2",
     "@opengsn/cli": "^3.0.0-beta.10",
     "@openzeppelin/test-helpers": "^0.5.15",
     "@types/chai-as-promised": "^7.1.3",

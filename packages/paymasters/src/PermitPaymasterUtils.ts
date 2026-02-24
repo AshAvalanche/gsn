@@ -1,4 +1,4 @@
-import { type StaticJsonRpcProvider } from '@ethersproject/providers'
+
 import { type PrefixedHexString, fromRpcSig } from 'ethereumjs-util'
 import { getEip712Signature, type Address, type IntString } from '@opengsn/common'
 import { type TypedMessage } from '@metamask/eth-sig-util'

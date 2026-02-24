@@ -1,5 +1,4 @@
-import { type Address, type IntString } from '../types/Aliases'
-import { type PrefixedHexString } from 'ethereumjs-util'
+import { type Address, type IntString, type PrefixedHexString } from '../types/Aliases'
 
 type addresses = 'from' | 'to'
 type data = 'data'

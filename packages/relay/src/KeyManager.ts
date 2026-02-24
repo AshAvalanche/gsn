@@ -1,23 +1,21 @@
-// @ts-ignore
-import Wallet from 'ethereumjs-wallet'
-import EthereumHDKey from 'ethereumjs-wallet/dist/hdkey'
+import { HDKey } from 'viem/accounts'
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
+import { type Hex, type TransactionSerializable, serializeTransaction } from 'viem'
 
 import fs from 'fs'
 import ow from 'ow'
-import { bufferToHex } from 'ethereumjs-util'
-import { type Hex } from 'viem'
-import { type TypedTransaction } from '@ethereumjs/tx'
+import { randomBytes } from 'crypto'
 
 export const KEYSTORE_FILENAME = 'keystore'
 
 export interface SignedTransaction {
   rawTx: Hex
-  signedEthJsTx: TypedTransaction
+  signedTx: TransactionSerializable
 }
 
 export class KeyManager {
-  private readonly hdkey: EthereumHDKey
-  private _privateKeys: Record<Hex, Buffer> = {}
+  private readonly hdkey: HDKey
+  private _privateKeys: Record<Hex, Hex> = {}
   private nonces: Record<string, number> = {}
 
   /**
@@ -35,24 +33,24 @@ export class KeyManager {
       if (!fs.existsSync(workdir)) {
         fs.mkdirSync(workdir, { recursive: true })
       }
-      let genseed
+      let genseed: string
       const keyStorePath = workdir + '/' + KEYSTORE_FILENAME
       if (fs.existsSync(keyStorePath)) {
         genseed = JSON.parse(fs.readFileSync(keyStorePath).toString()).seed
       } else {
-        genseed = Wallet.generate().getPrivateKey().toString('hex')
+        genseed = randomBytes(32).toString('hex')
         fs.writeFileSync(keyStorePath, JSON.stringify({ seed: genseed }), { flag: 'w' })
       }
-      this.hdkey = EthereumHDKey.fromMasterSeed(genseed)
+      this.hdkey = HDKey.fromMasterSeed(Buffer.from(genseed, 'hex'))
     } else {
       // no workdir: working in-memory
       let seedBuffer: Buffer
       if (seed == null) {
-        seedBuffer = Wallet.generate().getPrivateKey()
+        seedBuffer = randomBytes(32)
       } else {
-        seedBuffer = Buffer.from(seed)
+        seedBuffer = seed.startsWith('0x') ? Buffer.from(seed.slice(2), 'hex') : Buffer.from(seed, 'hex')
       }
-      this.hdkey = EthereumHDKey.fromMasterSeed(seedBuffer)
+      this.hdkey = HDKey.fromMasterSeed(seedBuffer)
     }
 
     this.generateKeys(count)
@@ -62,9 +60,14 @@ export class KeyManager {
     this._privateKeys = {}
     this.nonces = {}
     for (let index = 0; index < count; index++) {
-      const w = this.hdkey.deriveChild(index).getWallet()
-      const address = bufferToHex(w.getAddress()) as Hex
-      this._privateKeys[address] = w.getPrivateKey()
+      const derived = this.hdkey.deriveChild(index)
+      if (derived.privateKey == null) {
+        throw new Error(`Failed to derive private key for index ${index}`)
+      }
+      const privateKeyHex = `0x${Buffer.from(derived.privateKey).toString('hex')}` as Hex
+      const account = privateKeyToAccount(privateKeyHex)
+      const address = account.address.toLowerCase() as Hex
+      this._privateKeys[address] = privateKeyHex
       this.nonces[index] = 0
     }
   }
@@ -78,18 +81,17 @@ export class KeyManager {
   }
 
   isSigner(signer: Hex): boolean {
-    return this._privateKeys[signer] != null
+    return this._privateKeys[signer.toLowerCase() as Hex] != null
   }
 
-  signTransaction(signer: Hex, tx: TypedTransaction): SignedTransaction {
+  async signTransaction(signer: Hex, tx: TransactionSerializable): Promise<SignedTransaction> {
     ow(signer, ow.string)
-    const privateKey = this._privateKeys[signer]
+    const privateKey = this._privateKeys[signer.toLowerCase() as Hex]
     if (privateKey === undefined) {
       throw new Error(`Can't sign: signer=${signer} is not managed`)
     }
-    const signedEthJsTx = tx.sign(privateKey)
-    signedEthJsTx.raw()
-    const rawTx = '0x' + signedEthJsTx.serialize().toString('hex') as Hex
-    return { rawTx, signedEthJsTx }
+    const account = privateKeyToAccount(privateKey)
+    const rawTx = await account.signTransaction(tx)
+    return { rawTx, signedTx: tx }
   }
 }

@@ -1,10 +1,10 @@
 {
   "devMode": true,
   "gasPriceFactor": 1,
-  "checkInterval": 50,
+  "checkInterval": 300,
   "logLevel": "debug",
-  "workerTargetBalance": "1000000000000000000",
-  "managerTargetBalance": "300000000000000000",
-  "managerMinBalance": "100000000000000000",
-  "workerMinBalance": "100000000000000000"
+  "workerTargetBalance": "100000000000000",
+  "managerTargetBalance": "30000000000000",
+  "managerMinBalance": "10000000000000",
+  "workerMinBalance": "10000000000000"
 }

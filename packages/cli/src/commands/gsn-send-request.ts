@@ -1,9 +1,7 @@
 import commander from 'commander'
 import fs from 'fs'
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts'
-import { parseGwei, toHex, type Hex } from 'viem'
-import { StaticJsonRpcProvider } from '@ethersproject/providers'
-import { Contract } from '@ethersproject/contracts'
+import { createPublicClient, createWalletClient, custom, http, parseGwei, toHex, type Hex, publicActions, getContract } from 'viem'
 
 import {
   type Address,
@@ -56,9 +54,9 @@ async function getProvider(
     throw new Error('must specify either "--mnemonic" or pass "--from" account')
   }
   if (commander.directCall === true) {
-    // For direct calls, use a plain ethers provider (compatible with web3 contract interface)
-    const provider = new StaticJsonRpcProvider(host)
-    return { provider: provider as any, from }
+    // For direct calls, use a plain viem public client
+    const provider = createPublicClient({ transport: http(host) })
+    return { provider: provider, from }
   } else {
     if (paymaster == null) {
       throw new Error('--paymaster: address not specified')
@@ -66,9 +64,9 @@ async function getProvider(
     const overrideDependencies: Partial<GSNDependencies> = {
       logger
     }
-    const ethersProvider = new StaticJsonRpcProvider(host)
+    const publicClient = createPublicClient({ transport: http(host) })
     const input: GSNUnresolvedConstructorInput = {
-      provider: ethersProvider,
+      provider: publicClient,
       config,
       overrideDependencies
     }
@@ -106,7 +104,12 @@ async function getProvider(
   if (commander.to == null) {
     throw new Error('--to: target address is missing')
   }
-  const contract = new Contract(commander.to, abiJson, provider.getSigner(from))
+  const walletClient = createWalletClient({ transport: http(nodeURL), account: from as Hex }).extend(publicActions)
+  const contract = getContract({
+    address: commander.to as Hex,
+    abi: abiJson,
+    client: walletClient
+  })
 
   const calldata = commander.calldata
   const methodName: string = commander.method
@@ -117,7 +120,7 @@ async function getProvider(
     throw new Error('Must pass either --calldata or --method')
   }
 
-  const method = contract[methodName]
+  const method = (contract.write as Record<string, (...args: unknown[]) => Promise<Hex>>)[methodName]
   if (method == null) {
     throw new Error(`Method (${methodName}) is not found on contract`)
   }
@@ -128,16 +131,16 @@ async function getProvider(
     : toHex(await logic.getGasPrice())
   const gas = commander.gasLimit
 
-  const tx = await method(...methodParams, {
-    gasLimit: gas,
-    gasPrice
+  const txHash = await method(...(methodParams ?? []), {
+    gas: gas != null ? BigInt(gas) : undefined,
+    gasPrice: BigInt(gasPrice)
   })
-  console.log(tx)
-  const receipt = await tx.wait()
+  console.log('Transaction hash:', txHash)
+  const receipt = await walletClient.waitForTransactionReceipt({ hash: txHash })
   console.log(receipt)
 
   console.log(JSON.stringify(methodParams))
-  console.log(contract.address)
+  console.log(commander.to)
   process.exit(0)
 })().catch(
   reason => {

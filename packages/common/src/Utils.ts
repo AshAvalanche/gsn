@@ -93,7 +93,7 @@ export function decodeRevertReason(revertBytes: Hex, throwOnError = false): stri
       }],
       data: revertBytes
     })
-    return (errorString as any).args[0]
+    return (errorString).args[0]
   } catch (e) {
     return null
   }
@@ -259,7 +259,7 @@ export function splitRelayUrlForRegistrar(url: string, partsCount: number = 3): 
   return result
 }
 
-export function packRelayUrlForRegistrar(parts: string[]): string {
+export function packRelayUrlForRegistrar(parts: readonly string[]): string {
   return Buffer.from(
     parts.join('')
       .replace(/0x/g, '')
@@ -281,7 +281,7 @@ export function getRelayRequestID(relayRequest: RelayRequest, signature: Hex): H
   return `0x${prefixedRelayRequestId}` as Hex
 }
 
-export function getERC165InterfaceID(abi: any[]): string {
+export function getERC165InterfaceID(abi: Abi): string {
   // Viem abi
   let interfaceId = 0
   for (const item of abi) {
