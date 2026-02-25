@@ -13,7 +13,7 @@ import {
 import daiPermitAbi from './interfaces/PermitInterfaceDAI.json'
 import eip2612PermitAbi from './interfaces/PermitInterfaceEIP2612.json'
 import type BN from 'bn.js'
-import { Contract } from 'ethers'
+import { Contract, providers } from 'ethers'
 
 interface Types extends MessageTypes {
   EIP712Domain: MessageTypeProperty[]
@@ -110,7 +110,7 @@ export async function signAndEncodeDaiPermit(
   spender: Address,
   token: Address,
   expiry: IntString,
-  provider: StaticJsonRpcProvider,
+  provider: providers.StaticJsonRpcProvider | any,
   domainSeparator: EIP712Domain,
   methodSuffix: string,
   jsonStringifyRequest: boolean,
@@ -155,7 +155,7 @@ export async function signAndEncodeEIP2612Permit(
   token: Address,
   value: string,
   deadline: string,
-  provider: StaticJsonRpcProvider,
+  provider: providers.StaticJsonRpcProvider | any,
   domainSeparator: EIP712Domain,
   methodSuffix: string,
   jsonStringifyRequest: boolean,

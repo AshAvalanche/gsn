@@ -415,7 +415,13 @@ data                     | ${transaction.data}
           if (transaction.minedBlock?.number != null) {
             this.logger.warn(`transaction ${transaction.txId} was moved between blocks`)
           }
-          const minedBlock = await this.contractInteractor.getBlock(Number(receipt.blockNumber))
+          const rawMinedBlock = await this.contractInteractor.getBlock(Number(receipt.blockNumber))
+          // viem returns block.number and block.timestamp as bigint; map to ShortBlockInfo (number)
+          const minedBlock: ShortBlockInfo = {
+            hash: rawMinedBlock.hash as Hex,
+            number: Number(rawMinedBlock.number),
+            timestamp: Number(rawMinedBlock.timestamp)
+          }
           await this.updateTransactionWithMinedBlock(transaction, minedBlock)
         }
       }

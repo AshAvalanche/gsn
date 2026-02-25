@@ -129,9 +129,25 @@ export class TypedRequestData {
     this.primaryType = 'RelayRequest'
     // in the signature, all "request" fields are flattened out at the top structure.
     // other params are inside "relayData" sub-type
+    // viem signTypedData requires BigInt for uint256 fields, not strings
     this.message = {
-      ...relayRequest.request,
-      relayData: relayRequest.relayData
+      from: relayRequest.request.from,
+      to: relayRequest.request.to,
+      value: BigInt(relayRequest.request.value),
+      gas: BigInt(relayRequest.request.gas),
+      nonce: BigInt(relayRequest.request.nonce),
+      data: relayRequest.request.data,
+      validUntilTime: BigInt(relayRequest.request.validUntilTime),
+      relayData: {
+        maxFeePerGas: BigInt(relayRequest.relayData.maxFeePerGas),
+        maxPriorityFeePerGas: BigInt(relayRequest.relayData.maxPriorityFeePerGas),
+        transactionCalldataGasUsed: BigInt(relayRequest.relayData.transactionCalldataGasUsed),
+        relayWorker: relayRequest.relayData.relayWorker,
+        paymaster: relayRequest.relayData.paymaster,
+        forwarder: relayRequest.relayData.forwarder,
+        paymasterData: relayRequest.relayData.paymasterData,
+        clientId: BigInt(relayRequest.relayData.clientId)
+      }
     }
   }
 }

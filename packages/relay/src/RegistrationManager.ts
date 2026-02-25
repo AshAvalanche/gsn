@@ -153,6 +153,9 @@ export class RegistrationManager {
       fromBlock: BigInt(lastScannedBlock + 1),
       toBlock: 'latest'
     }
+    // viem returns block.number and block.hash as bigint/null; convert once for safe use throughout
+    const blockNumber = Number(currentBlock.number)
+    const blockHash = (currentBlock.hash ?? '0x') as string
     const eventNames = [HubAuthorized, StakeAdded, HubUnauthorized, StakeUnlocked, StakeWithdrawn, OwnerSet]
     const decodedEvents = await this.contractInteractor.getPastEventsForStakeManager(eventNames, topics, options)
     this.printEvents(decodedEvents, options)
@@ -163,7 +166,7 @@ export class RegistrationManager {
         console.log(`DEBUG: balance satisfied, _isSetOwnerCalled=${this._isSetOwnerCalled}`)
         if (!this._isSetOwnerCalled) {
           this._isSetOwnerCalled = true
-          transactionHashes = transactionHashes.concat(await this.setOwnerInStakeManager(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+          transactionHashes = transactionHashes.concat(await this.setOwnerInStakeManager(blockNumber, blockHash, currentBlockTimestamp))
         }
       } else {
         this.logger.debug('owner is not set and balance requirement is not satisfied')
@@ -176,32 +179,32 @@ export class RegistrationManager {
     for (const eventData of decodedEvents) {
       switch (eventData.eventName) {
         case HubAuthorized:
-          this.logger.warn(`Handling HubAuthorized event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
+          this.logger.warn(`Handling HubAuthorized event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
           await this._handleHubAuthorizedEvent(eventData)
           break
         case OwnerSet:
-          transactionHashes = transactionHashes.concat(await this.refreshStake(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
-          this.logger.warn(`Handling OwnerSet event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
+          transactionHashes = transactionHashes.concat(await this.refreshStake(blockNumber, blockHash, currentBlockTimestamp))
+          this.logger.warn(`Handling OwnerSet event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
           break
         case StakeAdded:
-          transactionHashes = transactionHashes.concat(await this.refreshStake(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
-          this.logger.warn(`Handling StakeAdded event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
+          transactionHashes = transactionHashes.concat(await this.refreshStake(blockNumber, blockHash, currentBlockTimestamp))
+          this.logger.warn(`Handling StakeAdded event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
           break
         case HubUnauthorized:
-          this.logger.warn(`Handling HubUnauthorized event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
+          this.logger.warn(`Handling HubUnauthorized event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
           if (isSameAddress(eventData.args.relayHub, this.hubAddress)) {
             this.isHubAuthorized = false
             this.delayedEvents.push({ time: eventData.args.removalTime.toString(), eventData })
           }
           break
         case StakeUnlocked:
-          this.logger.warn(`Handling StakeUnlocked event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
-          transactionHashes = transactionHashes.concat(await this.refreshStake(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+          this.logger.warn(`Handling StakeUnlocked event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
+          transactionHashes = transactionHashes.concat(await this.refreshStake(blockNumber, blockHash, currentBlockTimestamp))
           break
         case StakeWithdrawn:
-          this.logger.warn(`Handling StakeWithdrawn event: ${JSON.stringify(eventData)} in block ${currentBlock.number}`)
-          transactionHashes = transactionHashes.concat(await this.refreshStake(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
-          transactionHashes = transactionHashes.concat(await this._handleStakeWithdrawnEvent(eventData, currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+          this.logger.warn(`Handling StakeWithdrawn event: ${JSON.stringify(eventData)} in block ${blockNumber}`)
+          transactionHashes = transactionHashes.concat(await this.refreshStake(blockNumber, blockHash, currentBlockTimestamp))
+          transactionHashes = transactionHashes.concat(await this._handleStakeWithdrawnEvent(eventData, blockNumber, blockHash, currentBlockTimestamp))
           break
       }
     }
@@ -211,16 +214,18 @@ export class RegistrationManager {
     for (const eventData of this._extractDuePendingEvents(currentBlockTime)) {
       switch (eventData.eventName) {
         case HubUnauthorized:
-          transactionHashes = transactionHashes.concat(await this._handleHubUnauthorizedEvent(eventData, currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+          transactionHashes = transactionHashes.concat(await this._handleHubUnauthorizedEvent(eventData, blockNumber, blockHash, currentBlockTimestamp))
           break
       }
     }
     await this.refreshRegistrarRelayInfo()
     const isRegistrationCorrect = this._isRegistrationCorrect()
-    const isRegistrationPending = await this.txStoreManager.isActionPendingOrRecentlyMined(ServerAction.REGISTER_SERVER, currentBlock.number, this.config.recentActionAvoidRepeatDistanceBlocks)
+    const isRegistrationPending = await this.txStoreManager.isActionPendingOrRecentlyMined(ServerAction.REGISTER_SERVER, blockNumber, this.config.recentActionAvoidRepeatDistanceBlocks)
+    const allStoredTxs = await this.txStoreManager.getAll()
+    this.logger.info(`DEBUG attemptRegistration: isRegistrationCorrect=${isRegistrationCorrect} isRegistrationPending=${isRegistrationPending} allStoredTxs=${JSON.stringify(allStoredTxs.map(tx => ({ action: tx.serverAction, txId: tx.txId, minedBlock: tx.minedBlock })))}`)
     if (!(isRegistrationPending || isRegistrationCorrect) || forceRegistration) {
       this.logger.debug(`will attempt registration: isRegistrationPending=${isRegistrationPending} isRegistrationCorrect=${isRegistrationCorrect} forceRegistration=${forceRegistration}`)
-      transactionHashes = transactionHashes.concat(await this.attemptRegistration(currentBlock.number, currentBlock.hash, currentBlockTimestamp))
+      transactionHashes = transactionHashes.concat(await this.attemptRegistration(blockNumber, blockHash, currentBlockTimestamp))
     }
     return transactionHashes
   }

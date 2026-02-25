@@ -58,7 +58,16 @@ export class RelayCallGasLimitCalculationHelper {
     // The previous code calculated maxPossibleCharge.
 
     const maxPossibleCharge =
-      await this.contractInteractor.calculateChargeWithRelayHub(transactionMaxPossibleGasUsed, relayRequest.relayData, {
+      await this.contractInteractor.calculateChargeWithRelayHub(transactionMaxPossibleGasUsed, {
+        maxFeePerGas: BigInt(relayRequest.relayData.maxFeePerGas),
+        maxPriorityFeePerGas: BigInt(relayRequest.relayData.maxPriorityFeePerGas),
+        transactionCalldataGasUsed: BigInt(relayRequest.relayData.transactionCalldataGasUsed),
+        relayWorker: relayRequest.relayData.relayWorker,
+        paymaster: relayRequest.relayData.paymaster,
+        forwarder: relayRequest.relayData.forwarder,
+        paymasterData: relayRequest.relayData.paymasterData,
+        clientId: BigInt(relayRequest.relayData.clientId)
+      }, {
         from: constants.DRY_RUN_ADDRESS,
         gasLimit: transactionMaxPossibleGasUsed // Passing bigint as gas limit
       })

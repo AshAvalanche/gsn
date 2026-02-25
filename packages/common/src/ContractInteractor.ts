@@ -703,22 +703,26 @@ export class ContractInteractor {
   }
 
   async _getPastEvents(contract: any, names: EventName[], extraTopics: Array<Hex | Hex[] | null>, options: FilterBlocks): Promise<EventData[]> {
-    const eventsAbi = contract.abi.filter((item: any) => item.type === 'event' && names.includes(item.name))[0]
-    this.logger.info(`Requesting ${JSON.stringify(eventsAbi)} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
-    const logs = await this.client.getLogs({
-      address: contract.address,
-      fromBlock: options.fromBlock as bigint,
-      toBlock: options.toBlock as bigint,
-      event: eventsAbi,
-    })
-    this.logger.info(`Found ${logs.length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
-    const events = parseEventLogs({
-      abi: contract.abi,
-      logs: logs,
-      eventName: names
-    }) as unknown as EventData[]
-    this.logger.info(`Parsed ${events.length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
-    return events
+    const eventsAbis = contract.abi.filter((item: any) => item.type === 'event' && names.includes(item.name))
+    const allEvents: EventData[] = []
+    for (const eventsAbi of eventsAbis) {
+      this.logger.info(`Requesting ${JSON.stringify(eventsAbi.name)} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
+      const logs = await this.client.getLogs({
+        address: contract.address,
+        fromBlock: options.fromBlock as bigint,
+        toBlock: options.toBlock as bigint,
+        event: eventsAbi,
+      })
+      this.logger.info(`Found ${logs.length} ${eventsAbi.name} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
+      const events = parseEventLogs({
+        abi: contract.abi,
+        logs: logs,
+        eventName: [eventsAbi.name]
+      }) as unknown as EventData[]
+      allEvents.push(...events)
+    }
+    this.logger.info(`Parsed ${allEvents.length} ${names} events for ${contract.address} between block ${options.fromBlock} and ${options.toBlock}`)
+    return allEvents
   }
 
   async getBalance(address: Address, defaultBlock: any = 'latest'): Promise<bigint> {
@@ -777,7 +781,11 @@ export class ContractInteractor {
   async getGasAndDataLimitsFromPaymaster(paymaster: Address): Promise<any> {
     try {
       const paymasterContract = this._createPaymaster(paymaster)
-      return await paymasterContract.read.getGasAndDataLimits()
+      const result = await paymasterContract.read.getGasAndDataLimits() as any
+      // viem returns named tuple outputs as { fieldName: value }.
+      // Since the ABI declares output name "limits", viem gives us { limits: { acceptanceBudget, ... } }
+      // but callers expect the inner struct directly.
+      return result?.limits ?? result
     } catch (e: any) {
       const error = e as Error
       const message = `not a valid paymaster contract: ${paymaster} ${error.message}`

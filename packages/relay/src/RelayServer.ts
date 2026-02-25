@@ -370,15 +370,15 @@ export class RelayServer extends EventEmitter {
         viewRelayCallRet =
           await method.call!({
             from: this.workerAddress,
-            maxFeePerGas: toHex(req.relayRequest.relayData.maxFeePerGas),
-            maxPriorityFeePerGas: toHex(req.relayRequest.relayData.maxPriorityFeePerGas),
+            maxFeePerGas: toHex(BigInt(req.relayRequest.relayData.maxFeePerGas)),
+            maxPriorityFeePerGas: toHex(BigInt(req.relayRequest.relayData.maxPriorityFeePerGas)),
             gasLimit: maxPossibleGas
           }, 'pending', this.contractInteractor.client, this.relayHubContract.address as Address)
       } else {
         viewRelayCallRet =
           await method.call!({
             from: this.workerAddress,
-            gasPrice: toHex(req.relayRequest.relayData.maxFeePerGas),
+            gasPrice: toHex(BigInt(req.relayRequest.relayData.maxFeePerGas)),
             gasLimit: maxPossibleGas
           }, 'pending', this.contractInteractor.client, this.relayHubContract.address as Address)
       }
@@ -426,8 +426,10 @@ returnValue        | ${viewRelayCallRet.returnValue}
     // Send relayed transaction
     this.logger.debug(`maxPossibleGas is: ${maxPossibleGas}`)
 
+    this.logger.debug('[DEBUG] step 1: getRelayCallMethod')
     const method = this.web3MethodsBuilder.getRelayCallMethod(
       req.metadata.domainSeparatorName, req.metadata.maxAcceptanceBudget, req.relayRequest, req.metadata.signature, req.metadata.approvalData)
+    this.logger.debug('[DEBUG] step 2: build SendTransactionDetails')
     const details: SendTransactionDetails =
     {
       signer: this.workerAddress,
@@ -441,10 +443,14 @@ returnValue        | ${viewRelayCallRet.returnValue}
       maxFeePerGas: req.relayRequest.relayData.maxFeePerGas,
       maxPriorityFeePerGas: req.relayRequest.relayData.maxPriorityFeePerGas
     }
+    this.logger.debug('[DEBUG] step 3: sendTransaction')
     const { signedTx, nonce } = await this.transactionManager.sendTransaction(details)
+    this.logger.debug(`[DEBUG] step 4: getNonceGapFilled, nonce=${nonce}`)
     const nonceGapFilled = await this.transactionManager.getNonceGapFilled(this.workerAddress, req.metadata.relayLastKnownNonce, nonce - 1)
+    this.logger.debug('[DEBUG] step 5: replenishServer')
     // after sending a transaction is a good time to check the worker's balance, and replenish it.
     await this.replenishServer(0, Number(currentBlock.number), currentBlock.hash as string, currentBlockTimestamp)
+    this.logger.debug('[DEBUG] step 6: return')
     return { signedTx, nonceGapFilled }
   }
 
@@ -483,9 +489,11 @@ returnValue        | ${viewRelayCallRet.returnValue}
     this.trustedPaymastersGasAndDataLimits.clear()
     for (const paymasterAddress of paymasters) {
       const paymaster = await this.contractInteractor._createPaymaster(paymasterAddress as Address)
-      const gasAndDataLimits = await paymaster.read.getGasAndDataLimits().catch((e: Error) => {
+      const rawLimits = await paymaster.read.getGasAndDataLimits().catch((e: Error) => {
         throw new Error(`not a valid paymaster address in trustedPaymasters list: ${paymasterAddress}: ${e.message}`)
-      })
+      }) as any
+      // viem wraps named tuple outputs under their field name; unwrap if needed
+      const gasAndDataLimits = rawLimits?.limits ?? rawLimits
       this.trustedPaymastersGasAndDataLimits.set(paymasterAddress.toLowerCase(), gasAndDataLimits)
     }
   }
@@ -834,6 +842,11 @@ latestBlock timestamp   | ${latestBlock.timestamp}
 
   async handlePastHubEvents(currentBlock: Block, hubEventsSinceLastScan: EventData[]): Promise<void> {
     for (const event of hubEventsSinceLastScan) {
+      // Guard against viem returning events with null args (decode failed)
+      if (event.args == null) {
+        this.logger.warn(`handlePastHubEvents: skipping event ${event.eventName ?? 'unknown'} with null args`)
+        continue
+      }
       switch (event.eventName) {
         case TransactionRejectedByPaymaster:
           this.logger.debug(`handle TransactionRejectedByPaymaster event: ${JSON.stringify(event)}`)

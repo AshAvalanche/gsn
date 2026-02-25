@@ -57,9 +57,9 @@ export class TokenPaymasterProvider extends RelayProvider {
    */
   async init(permitERC20TokenForGas?: Address | SupportedTokenSymbols): Promise<this> {
     await super.init()
-    const chainId = this.origProvider.network.chainId
+    const { chainId } = await this.origProvider.getNetwork()
 
-    const paymasterAddress = getPaymasterAddressByTypeAndChain(this.config?.paymasterAddress, chainId, this.logger)
+    const paymasterAddress = getPaymasterAddressByTypeAndChain(this.config?.paymasterAddress, Number(chainId), this.logger)
     this.tokenPaymasterInteractor = new TokenPaymasterInteractor(this.origProvider, paymasterAddress, this.logger)
     await this.tokenPaymasterInteractor.init()
     this.relayClient.dependencies.asyncPaymasterData = this._buildPaymasterData.bind(this)
@@ -115,7 +115,7 @@ export class TokenPaymasterProvider extends RelayProvider {
 
   async autoSelectToken(): Promise<void> {
     const tokenBalancesNativeWei: TokenSelectionDetails[] = []
-    const [account0] = await this.origProvider.listAccounts()
+    const account0 = await this.origProvider.getSigner().getAddress()
     const supportedTokens = await this.tokenPaymasterInteractor.supportedTokens()
     if (supportedTokens.length === 0) {
       throw new Error(`Paymaster ${this.tokenPaymasterInteractor.paymaster.address} does not have configured tokens.`)
@@ -147,8 +147,8 @@ export class TokenPaymasterProvider extends RelayProvider {
   }
 
   async setToken(permitERC20TokenForGas: Address | SupportedTokenSymbols): Promise<void> {
-    const chainId = this.origProvider.network.chainId
-    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas, chainId) ?? permitERC20TokenForGas.toString().toLowerCase()
+    const { chainId } = await this.origProvider.getNetwork()
+    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas as SupportedTokenSymbols, Number(chainId)) ?? permitERC20TokenForGas.toString().toLowerCase()
     if (tokenAddress == null || !isValidAddress(tokenAddress)) {
       throw new Error(`Unable to find token with name/address ${permitERC20TokenForGas} on chainId ${chainId}`)
     }

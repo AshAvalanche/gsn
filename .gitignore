@@ -55,3 +55,6 @@ hardhat.log
 /out/
 /cache_forge/
 /lib/
+
+# cargo
+**/target/

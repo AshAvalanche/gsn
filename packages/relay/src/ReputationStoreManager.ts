@@ -81,9 +81,21 @@ export class ReputationStoreManager {
   }
 
   private async updateEntry(paymaster: Address, update: Partial<ReputationEntry>): Promise<void> {
-    const existing: ReputationEntry = await this.txstore.findOneAsync({ paymaster: paymaster.toLowerCase() })
-    const entry = Object.assign({}, existing, update)
-    await this.txstore.updateAsync({ paymaster: existing.paymaster }, { $set: entry })
+    const existing: ReputationEntry | null = await this.txstore.findOneAsync({ paymaster: paymaster.toLowerCase() })
+    if (existing == null) {
+      // Entry doesn't exist yet — upsert it directly
+      const entry: ReputationEntry = Object.assign({
+        paymaster: paymaster.toLowerCase() as Address,
+        reputation: 0,
+        lastAcceptedRelayRequestTs: 0,
+        abuseStartedBlock: 0,
+        changes: []
+      }, update)
+      await this.txstore.updateAsync({ paymaster: paymaster.toLowerCase() }, { $set: entry }, { upsert: true })
+    } else {
+      const entry = Object.assign({}, existing, update)
+      await this.txstore.updateAsync({ paymaster: existing.paymaster }, { $set: entry })
+    }
   }
 
   async getEntry(paymaster: Address): Promise<ReputationEntry | undefined> {

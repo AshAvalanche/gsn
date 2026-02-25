@@ -119,6 +119,9 @@ export class Web3MethodsBuilder {
       call: async (options: any, block?: string, client?: Client, target?: Address) => {
         if (client == null || target == null) throw new Error('client and target required for call')
         const publicClient = client as any
+        // relayCall returns: (bool paymasterAccepted, uint256 charge, RelayCallStatus status, bytes returnValue)
+        console.log('relayCall', abi, functionName, args)
+        console.log('address', target)
         const res = await publicClient.readContract({
           address: target,
           abi,
@@ -130,8 +133,10 @@ export class Web3MethodsBuilder {
           maxPriorityFeePerGas: options.maxPriorityFeePerGas != null ? BigInt(options.maxPriorityFeePerGas) : undefined,
           gasPrice: options.gasPrice != null ? BigInt(options.gasPrice) : undefined,
           blockTag: block
-        }) as readonly [boolean, Hex]
-        return { paymasterAccepted: res[0], returnValue: res[1] }
+        }) as readonly [boolean, bigint, number, Hex]
+        console.log('res', res)
+        // res[0] = paymasterAccepted, res[1] = charge (uint256), res[2] = status, res[3] = returnValue (bytes)
+        return { paymasterAccepted: res[0], returnValue: res[3] ?? '0x' }
       }
     }
   }

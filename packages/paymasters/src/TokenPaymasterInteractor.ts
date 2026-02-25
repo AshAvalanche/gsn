@@ -1,5 +1,4 @@
-
-
+import { providers } from 'ethers'
 import {
   type Address,
   Hex,
@@ -28,7 +27,7 @@ export interface TokenSwapData {
 }
 
 export class TokenPaymasterInteractor {
-  private provider: JsonRpcProvider
+  private provider: providers.JsonRpcProvider | providers.ExternalProvider | any
   private readonly paymasterAddress: Address
   private readonly logger: LoggerInterface
 
@@ -39,7 +38,7 @@ export class TokenPaymasterInteractor {
   token!: IERC20
 
   constructor(
-    provider: JsonRpcProvider | ExternalProvider,
+    provider: providers.JsonRpcProvider | providers.ExternalProvider | any,
     paymasterAddress: Address,
     logger: LoggerInterface
   ) {
