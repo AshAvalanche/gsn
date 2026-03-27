@@ -6,7 +6,6 @@
 import BN from 'bn.js'
 import numberToBN from 'number-to-bn'
 import ethjsUnit from 'ethjs-unit'
-import { BigNumber } from '@ethersproject/bignumber'
 import { utils } from 'ethers'
 
 /**

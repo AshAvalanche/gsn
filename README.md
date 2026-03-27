@@ -67,6 +67,26 @@ It has to inherit from the `ERC2771Recipient` base contract in order to support 
 
 ## Installation and Usage
 
+### Building and running CLI from source
+
+1. Install dependencies:
+   ```bash
+   yarn install
+   ```
+2. Preprocess (compile contracts and generate typings):
+   ```bash
+   yarn preprocess
+   yarn preprocess-paymasters
+   ```
+3. Run CLI:
+   ```bash
+   cd packages/cli
+   yarn gsn start
+   ```
+
+### Using as a library
+
+
 In order to install the GSN client library
 ```bash
 yarn add @opengsn/provider

@@ -1,13 +1,7 @@
-import * as bip39 from 'ethereum-cryptography/bip39'
-
-import Web3 from 'web3'
 import commander from 'commander'
 import fs from 'fs'
-import { type PrefixedHexString } from 'ethereumjs-util'
-import { StaticJsonRpcProvider } from '@ethersproject/providers'
-import { hdkey as EthereumHDKey } from 'ethereumjs-wallet'
-import { toHex, toWei } from 'web3-utils'
-import { type HttpProvider } from 'web3-core'
+import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts'
+import { createPublicClient, createWalletClient, custom, http, parseGwei, toHex, type Hex, publicActions, getContract } from 'viem'
 
 import {
   type Address,
@@ -20,13 +14,13 @@ import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger
 import { getMnemonic, getNetworkUrl, gsnCommander } from '../utils'
 import { CommandsLogic } from '../CommandsLogic'
 
-function commaSeparatedList (value: string, _dummyPrevious: string[]): string[] {
+function commaSeparatedList(value: string, _dummyPrevious: string[]): string[] {
   return value.split(',')
 }
 
 gsnCommander(['n', 'f', 'm', 'g', 'l'])
   .option('--directCall', 'whether to run transaction with relay or directly', false)
-  .option('--abiFile <string>', 'path to an ABI truffle artifact JSON file')
+  .option('--abiFile <string>', 'path to an ABI artifact JSON file')
   .option('--method <string>', 'method name to execute')
   .option('--methodParams <items>', 'comma separated args list', commaSeparatedList)
   .option('--calldata <string>', 'exact calldata to use')
@@ -34,40 +28,35 @@ gsnCommander(['n', 'f', 'm', 'g', 'l'])
   .option('--paymaster <string>', 'the Paymaster contract to be used')
   .parse(process.argv)
 
-async function getProvider (
+async function getProvider(
   to: Address,
   paymaster: Address,
   mnemonic: string | undefined,
   logger: LoggerInterface,
-  host: string): Promise<{ provider: HttpProvider, from: Address }> {
+  host: string): Promise<{ provider: any, from: Address }> {
   const config: Partial<GSNConfig> = {
     clientId: '0',
     paymasterAddress: paymaster
   }
   let from: Address
-  let privateKey: PrefixedHexString | undefined
+  let privateKey: Hex | undefined
   if (commander.from != null) {
-    // provider-controlled private key
     from = commander.from
     console.log('using', from)
   } else if (mnemonic != null) {
-    const hdwallet = EthereumHDKey.fromMasterSeed(
-      Buffer.from(bip39.mnemonicToSeedSync(mnemonic))
-    )
-    // add mnemonic private key to the account manager as an 'ephemeral key'
-    const wallet = hdwallet.deriveChild(0).getWallet()
-    from = `0x${wallet.getAddress().toString('hex')}`
-    privateKey = `0x${wallet.getPrivateKey().toString('hex')}`
+    const account = mnemonicToAccount(mnemonic)
+    from = account.address
+    privateKey = account.getHdKey().privateKey != null
+      ? `0x${Buffer.from(account.getHdKey().privateKey!).toString('hex')}` as Hex
+      : undefined
     console.log('mnemonic account:', from)
   } else {
     throw new Error('must specify either "--mnemonic" or pass "--from" account')
   }
   if (commander.directCall === true) {
-    const provider = new Web3.providers.HttpProvider(host, {
-      keepAlive: true,
-      timeout: 120000
-    })
-    return { provider, from }
+    // For direct calls, use a plain viem public client
+    const provider = createPublicClient({ transport: http(host) })
+    return { provider: provider, from }
   } else {
     if (paymaster == null) {
       throw new Error('--paymaster: address not specified')
@@ -75,9 +64,9 @@ async function getProvider (
     const overrideDependencies: Partial<GSNDependencies> = {
       logger
     }
-    const provider = new StaticJsonRpcProvider(host)
+    const publicClient = createPublicClient({ transport: http(host) })
     const input: GSNUnresolvedConstructorInput = {
-      provider,
+      provider: publicClient,
       config,
       overrideDependencies
     }
@@ -115,9 +104,12 @@ async function getProvider (
   if (commander.to == null) {
     throw new Error('--to: target address is missing')
   }
-  const web3Contract = logic.contract(abiJson, commander.to)
-  // @ts-ignore
-  web3Contract.setProvider(provider, undefined)
+  const walletClient = createWalletClient({ transport: http(nodeURL), account: from as Hex }).extend(publicActions)
+  const contract = getContract({
+    address: commander.to as Hex,
+    abi: abiJson,
+    client: walletClient
+  })
 
   const calldata = commander.calldata
   const methodName: string = commander.method
@@ -128,24 +120,27 @@ async function getProvider (
     throw new Error('Must pass either --calldata or --method')
   }
 
-  const method = web3Contract.methods[methodName]
+  const method = (contract.write as Record<string, (...args: unknown[]) => Promise<Hex>>)[methodName]
   if (method == null) {
     throw new Error(`Method (${methodName}) is not found on contract`)
   }
   const methodParams = commander.methodParams
 
-  const gasPrice = toHex(commander.gasPrice != null ? toWei(commander.gasPrice, 'gwei').toString() : (await logic.getGasPrice()).toString())
+  const gasPrice = commander.gasPrice != null
+    ? toHex(parseGwei(commander.gasPrice))
+    : toHex(await logic.getGasPrice())
   const gas = commander.gasLimit
 
-  const receipt = await method(...methodParams).send({
-    from,
-    gas,
-    gasPrice
+  const txHash = await method(...(methodParams ?? []), {
+    gas: gas != null ? BigInt(gas) : undefined,
+    gasPrice: BigInt(gasPrice)
   })
+  console.log('Transaction hash:', txHash)
+  const receipt = await walletClient.waitForTransactionReceipt({ hash: txHash })
   console.log(receipt)
 
   console.log(JSON.stringify(methodParams))
-  console.log(web3Contract.options.address)
+  console.log(commander.to)
   process.exit(0)
 })().catch(
   reason => {

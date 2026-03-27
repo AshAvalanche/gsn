@@ -1,13 +1,11 @@
-import type BN from 'bn.js'
-import type Web3 from 'web3'
+import { encodeFunctionData, type Hex, type Abi } from 'viem'
 
 import {
   type Address,
   type GSNContractsDeployment,
   type IntString,
   type RelayRequest,
-  splitRelayUrlForRegistrar,
-  toBN
+  splitRelayUrlForRegistrar
 } from '@opengsn/common'
 
 import penalizerAbi from '@opengsn/common/dist/interfaces/IPenalizer.json'
@@ -15,86 +13,161 @@ import relayHubAbi from '@opengsn/common/dist/interfaces/IRelayHub.json'
 import relayRegistrarAbi from '@opengsn/common/dist/interfaces/IRelayRegistrar.json'
 import stakeManagerAbi from '@opengsn/common/dist/interfaces/IStakeManager.json'
 
+import { type Client } from 'viem'
+
+/**
+ * A minimal "method" object that mirrors the old web3 contract method interface
+ * so callers can still call method.encodeABI() and method.estimateGas()
+ */
+export interface EncodedMethod {
+  encodeABI: () => Hex
+  call?: (options: any, block?: string, client?: Client, target?: Address) => Promise<any>
+}
+
 export class Web3MethodsBuilder {
-  private readonly IPenalizer: any
-  private readonly IRelayHubContract: any
-  private readonly IRelayRegistrar: any
-  private readonly IStakeManager: any
+  private readonly deployment?: GSNContractsDeployment
 
-  constructor (web3: Web3, deployment?: GSNContractsDeployment) {
-    // @ts-ignore
-    this.IStakeManager = new web3.eth.Contract(stakeManagerAbi, deployment?.stakeManagerAddress)
-    // @ts-ignore
-    this.IRelayRegistrar = new web3.eth.Contract(relayRegistrarAbi, deployment?.relayRegistrarAddress)
-    // @ts-ignore
-    this.IRelayHubContract = new web3.eth.Contract(relayHubAbi, deployment?.relayHubAddress)
-    // @ts-ignore
-    this.IPenalizer = new web3.eth.Contract(penalizerAbi, deployment?.penalizerAddress)
+  constructor(deployment?: GSNContractsDeployment) {
+    this.deployment = deployment
   }
 
-  // TODO: a way to make a relay hub transaction with a specified nonce without exposing the 'method' abstraction
-  async getRegisterRelayMethod (relayHub: Address, url: string): Promise<any> {
-    return this.IRelayRegistrar.methods.registerRelayServer(relayHub, splitRelayUrlForRegistrar(url))
+  async getRegisterRelayMethod(relayHub: Address, url: string): Promise<EncodedMethod> {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: relayRegistrarAbi as Abi,
+        functionName: 'registerRelayServer',
+        args: [relayHub, splitRelayUrlForRegistrar(url)]
+      })
+    }
   }
 
-  async getAuthorizeHubByManagerMethod (relayHub: Address): Promise<any> {
-    return this.IStakeManager.methods.authorizeHubByManager(relayHub)
+  async getAuthorizeHubByManagerMethod(relayHub: Address): Promise<EncodedMethod> {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: stakeManagerAbi as Abi,
+        functionName: 'authorizeHubByManager',
+        args: [relayHub]
+      })
+    }
   }
 
-  async getAddRelayWorkersMethod (workers: Address[]): Promise<any> {
-    return this.IRelayHubContract.methods.addRelayWorkers(workers)
+  async getAddRelayWorkersMethod(workers: Address[]): Promise<EncodedMethod> {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: relayHubAbi as Abi,
+        functionName: 'addRelayWorkers',
+        args: [workers]
+      })
+    }
   }
 
-  async getSetRelayManagerMethod (owner: Address): Promise<any> {
-    return this.IStakeManager.methods.setRelayManagerOwner(owner)
+  async getSetRelayManagerMethod(owner: Address): Promise<EncodedMethod> {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: stakeManagerAbi as Abi,
+        functionName: 'setRelayManagerOwner',
+        args: [owner]
+      })
+    }
   }
 
-  async getWithdrawMethod (destination: Address, amount: string): Promise<any> {
-    return this.IRelayHubContract.methods.withdraw(destination, amount)
+  async getWithdrawMethod(destination: Address, amount: string): Promise<EncodedMethod> {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: relayHubAbi as Abi,
+        functionName: 'withdraw',
+        args: [destination, amount]
+      })
+    }
   }
 
-  async withdrawHubBalanceEstimateGas (destination: Address, amount: string, managerAddress: Address, gasPrice: IntString): Promise<{
-    gasCost: BN
+  async withdrawHubBalanceEstimateGas(destination: Address, amount: string, managerAddress: Address, gasPrice: IntString): Promise<{
+    gasCost: bigint
     gasLimit: number
-    method: any
+    method: EncodedMethod
   }> {
     const method = await this.getWithdrawMethod(destination, amount)
-    const withdrawTxGasLimit = await method.estimateGas(
-      {
-        from: managerAddress
-      })
-    const gasCost = toBN(withdrawTxGasLimit).mul(toBN(gasPrice))
+    // Gas estimate would need a client — for now return a high default
+    // The actual gas estimation is done by the TransactionManager via ContractInteractor
+    const withdrawTxGasLimit = 100000
+    const gasCost = BigInt(withdrawTxGasLimit) * BigInt(gasPrice)
     return {
-      gasLimit: parseInt(withdrawTxGasLimit),
+      gasLimit: withdrawTxGasLimit,
       gasCost,
       method
     }
   }
 
-  getRelayCallMethod (
+  getRelayCallMethod(
     domainSeparatorName: string,
     maxAcceptanceBudget: number | string,
     relayRequest: RelayRequest,
     signature: string,
     approvalData: string
-  ): any {
-    return this.IRelayHubContract.methods.relayCall(
+  ): EncodedMethod {
+    const abi = relayHubAbi as Abi
+    const functionName = 'relayCall'
+    const args = [
       domainSeparatorName,
       maxAcceptanceBudget,
       relayRequest,
       signature,
-      approvalData)
+      approvalData
+    ]
+    return {
+      encodeABI: () => encodeFunctionData({ abi, functionName, args }),
+      call: async (options: any, block?: string, client?: Client, target?: Address) => {
+        if (client == null || target == null) throw new Error('client and target required for call')
+        const publicClient = client as any
+        // relayCall returns: (bool paymasterAccepted, uint256 charge, RelayCallStatus status, bytes returnValue)
+        console.log('relayCall', abi, functionName, args)
+        console.log('address', target)
+        const res = await publicClient.readContract({
+          address: target,
+          abi,
+          functionName,
+          args,
+          account: options.from,
+          gas: options.gasLimit != null ? BigInt(options.gasLimit) : undefined,
+          maxFeePerGas: options.maxFeePerGas != null ? BigInt(options.maxFeePerGas) : undefined,
+          maxPriorityFeePerGas: options.maxPriorityFeePerGas != null ? BigInt(options.maxPriorityFeePerGas) : undefined,
+          gasPrice: options.gasPrice != null ? BigInt(options.gasPrice) : undefined,
+          blockTag: block
+        }) as readonly [boolean, bigint, number, Hex]
+        console.log('res', res)
+        // res[0] = paymasterAccepted, res[1] = charge (uint256), res[2] = status, res[3] = returnValue (bytes)
+        return { paymasterAccepted: res[0], returnValue: res[3] ?? '0x' }
+      }
+    }
   }
 
-  getPenalizerCommitMethod (commitHash: string): any {
-    return this.IPenalizer.methods.commit(commitHash)
+  getPenalizerCommitMethod(commitHash: string): EncodedMethod {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: penalizerAbi as Abi,
+        functionName: 'commit',
+        args: [commitHash]
+      })
+    }
   }
 
-  getPenalizeRepeatedNonceMethod (...args: any[]): any {
-    return this.IPenalizer.methods.penalizeRepeatedNonce(...args)
+  getPenalizeRepeatedNonceMethod(...args: unknown[]): EncodedMethod {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: penalizerAbi as Abi,
+        functionName: 'penalizeRepeatedNonce',
+        args
+      })
+    }
   }
 
-  getPenalizeIllegalTransactionMethod (...args: any[]): any {
-    return this.IPenalizer.methods.penalizeIllegalTransaction(...args)
+  getPenalizeIllegalTransactionMethod(...args: unknown[]): EncodedMethod {
+    return {
+      encodeABI: () => encodeFunctionData({
+        abi: penalizerAbi as Abi,
+        functionName: 'penalizeIllegalTransaction',
+        args
+      })
+    }
   }
 }

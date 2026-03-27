@@ -1,4 +1,5 @@
 import { ether } from '@opengsn/common'
+import { type Address } from 'viem'
 import { CommandsLogic } from '../CommandsLogic'
 import { getMnemonic, getNetworkUrl, getPaymasterAddress, getRelayHubAddress, gsnCommander } from '../utils'
 import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger'
@@ -22,12 +23,12 @@ const commander = gsnCommander(['n', 'f', 'h', 'm'])
 
   const logger = createCommandsLogger(commander.loglevel)
   const mnemonic = getMnemonic(commander.mnemonic)
-  const logic = new CommandsLogic(nodeURL, logger, { relayHubAddress: hub }, mnemonic, commander.derivationPath, commander.derivationIndex, commander.privateKeyHex)
+  const logic = new CommandsLogic(nodeURL, logger, { relayHubAddress: hub as Address }, mnemonic, commander.derivationPath, commander.derivationIndex, commander.privateKeyHex)
   await logic.init()
   const from = commander.from ?? await logic.findWealthyAccount()
-  const amount = commander.amount ?? ether('1')
+  const amount = commander.amount ?? ether('0.002')
 
-  const balance = await logic.fundPaymaster(from, paymaster, amount)
+  const balance = await logic.fundPaymaster(from as Address, paymaster as Address, amount)
   console.log(`Paymaster ${paymaster} balance is now ${balance.toString()} wei`)
 })().catch(
   reason => {

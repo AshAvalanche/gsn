@@ -1,4 +1,4 @@
-import { type StaticJsonRpcProvider } from '@ethersproject/providers'
+
 import { type PrefixedHexString, fromRpcSig } from 'ethereumjs-util'
 import { getEip712Signature, type Address, type IntString } from '@opengsn/common'
 import { type TypedMessage } from '@metamask/eth-sig-util'
@@ -13,7 +13,7 @@ import {
 import daiPermitAbi from './interfaces/PermitInterfaceDAI.json'
 import eip2612PermitAbi from './interfaces/PermitInterfaceEIP2612.json'
 import type BN from 'bn.js'
-import { Contract } from 'ethers'
+import { Contract, providers } from 'ethers'
 
 interface Types extends MessageTypes {
   EIP712Domain: MessageTypeProperty[]
@@ -85,7 +85,7 @@ export class TypedPermit implements TypedMessage<Types> {
   readonly primaryType: string
   readonly message: any
 
-  constructor (
+  constructor(
     chainId: number,
     permitType: PermitType,
     domain: EIP712Domain,
@@ -105,12 +105,12 @@ export class TypedPermit implements TypedMessage<Types> {
   }
 }
 
-export async function signAndEncodeDaiPermit (
+export async function signAndEncodeDaiPermit(
   holder: Address,
   spender: Address,
   token: Address,
   expiry: IntString,
-  provider: StaticJsonRpcProvider,
+  provider: providers.StaticJsonRpcProvider | any,
   domainSeparator: EIP712Domain,
   methodSuffix: string,
   jsonStringifyRequest: boolean,
@@ -135,11 +135,11 @@ export async function signAndEncodeDaiPermit (
     domainSeparator,
     permit
   )
-  const signature = await getEip712Signature(
-    provider.getSigner(),
-    dataToSign
-    // methodSuffix,
-    // jsonStringifyRequest
+  // @ts-ignore
+  const signature = await provider.getSigner()._signTypedData(
+    dataToSign.domain,
+    dataToSign.types,
+    dataToSign.message
   )
   const { r, s, v } = fromRpcSig(signature)
   // we use 'estimateGas' to check against the permit method revert (hard to debug otherwise)
@@ -149,13 +149,13 @@ export async function signAndEncodeDaiPermit (
   return daiInstance.interface.encodeFunctionData('permit', [holder, spender, nonce, expiry, true, v, r, s])
 }
 
-export async function signAndEncodeEIP2612Permit (
+export async function signAndEncodeEIP2612Permit(
   owner: Address,
   spender: Address,
   token: Address,
   value: string,
   deadline: string,
-  provider: StaticJsonRpcProvider,
+  provider: providers.StaticJsonRpcProvider | any,
   domainSeparator: EIP712Domain,
   methodSuffix: string,
   jsonStringifyRequest: boolean,
@@ -183,11 +183,11 @@ export async function signAndEncodeEIP2612Permit (
     permit,
     domainType
   )
-  const signature = await getEip712Signature(
-    provider.getSigner(),
-    dataToSign
-    // methodSuffix,
-    // jsonStringifyRequest
+  // @ts-ignore
+  const signature = await provider.getSigner()._signTypedData(
+    dataToSign.domain,
+    dataToSign.types,
+    dataToSign.message
   )
   const { r, s, v } = fromRpcSig(signature)
   // we use 'estimateGas' to check against the permit method revert (hard to debug otherwise)

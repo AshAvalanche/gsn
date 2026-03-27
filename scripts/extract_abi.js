@@ -1,44 +1,84 @@
 #!/usr/bin/env node
 
-// extract ABI from truffle-compiled files
-// to a file format accepted by TruffleContract constructors
+// extract ABI from Foundry-compiled files (out/)
+// to a file format accepted by TruffleContract constructors (JSON with abi field)
 
 const fs = require('fs')
 const path = require('path')
-// const parseArgs = require('minimist')
 
-// TODO: pass all these things as parameters
-// const argv = parseArgs(process.argv, {
-//   string: filterType(, 'string'),
-//   // boolean: filterType(ConfigParamsTypes, 'boolean'),
-//   default: envDefaults
-// })
 let outAbiFolder
 let contractsFolderToExtract
 let files
 let jsonFilesLocation
+
+// Foundry output directory relative to root
+const FOUNDRY_OUT = 'out'
+
 if (process.argv.length >= 2 && process.argv[2] === 'paymasters') {
   outAbiFolder = 'packages/paymasters/src/interfaces/'
   contractsFolderToExtract = 'packages/paymasters/contracts/interfaces'
   files = fs.readdirSync(contractsFolderToExtract)
   files.push('PermitERC20UniswapV3Paymaster.sol')
-  files.concat()
-  jsonFilesLocation = 'packages/paymasters/build/contracts/'
+  files.push('HashcashPaymaster.sol')
+} else if (process.argv.length >= 2 && process.argv[2] === 'cli') {
+  outAbiFolder = 'packages/cli/src/compiled/'
+  // CLI needs specific contracts for deployment
+  files = [
+    'StakeManager.sol',
+    'RelayHub.sol',
+    'RelayRegistrar.sol',
+    'Penalizer.sol',
+    'TestPaymasterEverythingAccepted.sol',
+    'Forwarder.sol',
+    'TestWrappedNativeToken.sol'
+  ]
 } else {
   outAbiFolder = 'packages/common/src/interfaces/'
   contractsFolderToExtract = 'packages/contracts/src/interfaces'
   files = fs.readdirSync(contractsFolderToExtract)
   files.push('IForwarder.sol')
-  jsonFilesLocation = 'packages/cli/src/compiled/'
 }
+
+console.log(`Extracting ABIs from ${FOUNDRY_OUT} to ${outAbiFolder}...`)
 
 files.forEach(file => {
   const c = file.replace(/.sol/, '')
+  const contractFileName = file
+  
+  // Construct path to artifact
+  const artifactPath = path.join(FOUNDRY_OUT, contractFileName, `${c}.json`)
+  const outNodeFile = path.join(outAbiFolder, `${c}.json`)
 
-  const outNodeFile = outAbiFolder + '/' + c + '.json'
-  const jsonFile = `${jsonFilesLocation}/${c.replace(/interfaces./, '')}.json`
-  const abiStr = JSON.parse(fs.readFileSync(jsonFile, { encoding: 'utf8' }))
-  fs.mkdirSync(path.dirname(outNodeFile), { recursive: true })
-  fs.writeFileSync(outNodeFile, JSON.stringify(abiStr.abi))
-  console.log('written "' + outNodeFile + '"')
+  if (!fs.existsSync(artifactPath)) {
+      console.warn(`Warning: Artifact not found for ${file} at ${artifactPath}`)
+      return
+  }
+
+  try {
+      const artifact = JSON.parse(fs.readFileSync(artifactPath, { encoding: 'utf8' }))
+      if (!artifact.abi) {
+          console.warn(`Warning: No ABI in artifact for ${file}`)
+          return
+      }
+      
+      fs.mkdirSync(path.dirname(outNodeFile), { recursive: true })
+      
+      let outputContent;
+      if (process.argv[2] === 'cli') {
+        // CLI needs bytecode for deployment
+        outputContent = JSON.stringify({
+          abi: artifact.abi,
+          bytecode: artifact.bytecode.object,
+          contractName: c
+        }, null, 2)
+      } else {
+        // Interfaces only need ABI
+        outputContent = JSON.stringify(artifact.abi)
+      }
+
+      fs.writeFileSync(outNodeFile, outputContent)
+      console.log(`written "${outNodeFile}"`)
+  } catch (e) {
+      console.error(`Error processing ${file}: ${e.message}`)
+  }
 })

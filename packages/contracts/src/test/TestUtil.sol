@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.25;
 pragma abicoder v2;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import "../utils/GsnTypes.sol";
 import "../utils/GsnEip712Library.sol";
@@ -11,6 +12,8 @@ import "../utils/GsnUtils.sol";
 contract TestUtil {
     using ECDSA for bytes;
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes;
+    using MessageHashUtils for bytes32;
 
     function libRelayRequestName() public pure returns (string memory) {
         return GsnEip712Library.RELAY_REQUEST_NAME;
@@ -32,23 +35,24 @@ contract TestUtil {
     function callForwarderVerify(
         GsnTypes.RelayRequest calldata relayRequest,
         bytes calldata signature
-    )
-    external
-    view {
-        GsnEip712Library.verify("GSN Relayed Transaction", relayRequest, signature);
+    ) external view {
+        GsnEip712Library.verify(
+            "GSN Relayed Transaction",
+            relayRequest,
+            signature
+        );
     }
 
     function callForwarderVerifyAndCall(
         GsnTypes.RelayRequest calldata relayRequest,
         bytes calldata signature
-    )
-    external
-    returns (
-        bool success,
-        bytes memory ret
-    ) {
+    ) external returns (bool success, bytes memory ret) {
         bool forwarderSuccess;
-        (forwarderSuccess, success, ret) = GsnEip712Library.execute("GSN Relayed Transaction", relayRequest, signature);
+        (forwarderSuccess, success, ret) = GsnEip712Library.execute(
+            "GSN Relayed Transaction",
+            relayRequest,
+            signature
+        );
         if (!forwarderSuccess) {
             GsnUtils.revertWithData(ret);
         }
@@ -59,26 +63,29 @@ contract TestUtil {
 
     function splitRequest(
         GsnTypes.RelayRequest calldata relayRequest
-    )
-    external
-    pure
-    returns (
-        bytes32 typeHash,
-        bytes memory suffixData
-    ) {
+    ) external pure returns (bytes32 typeHash, bytes memory suffixData) {
         (suffixData) = GsnEip712Library.splitRequest(relayRequest);
         typeHash = GsnEip712Library.RELAY_REQUEST_TYPEHASH;
     }
 
-    function libDomainSeparator(address forwarder) public view returns (bytes32) {
-        return GsnEip712Library.domainSeparator("GSN Relayed Transaction", forwarder);
+    function libDomainSeparator(
+        address forwarder
+    ) public view returns (bytes32) {
+        return
+            GsnEip712Library.domainSeparator(
+                "GSN Relayed Transaction",
+                forwarder
+            );
     }
 
     function libGetChainID() public view returns (uint256) {
         return GsnEip712Library.getChainID();
     }
 
-    function _ecrecover(string memory message, bytes memory signature) public pure returns (address) {
+    function _ecrecover(
+        string memory message,
+        bytes memory signature
+    ) public pure returns (address) {
         return bytes(message).toEthSignedMessageHash().recover(signature);
     }
 }

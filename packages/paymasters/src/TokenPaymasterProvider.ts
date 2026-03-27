@@ -1,4 +1,4 @@
-import { type PrefixedHexString, isValidAddress } from 'ethereumjs-util'
+import { isValidAddress } from 'ethereumjs-util'
 
 import {
   type GSNUnresolvedConstructorInput,
@@ -13,6 +13,7 @@ import {
   type EIP712Domain,
   EIP712DomainType,
   EIP712DomainTypeWithoutVersion,
+  Hex,
   type RelayRequest,
   type SupportedTokenSymbols,
   constants,
@@ -42,7 +43,7 @@ interface TokenSelectionDetails {
 export class TokenPaymasterProvider extends RelayProvider {
   tokenPaymasterInteractor!: TokenPaymasterInteractor
 
-  static newProvider (input: GSNUnresolvedConstructorInput): TokenPaymasterProvider {
+  static newProvider(input: GSNUnresolvedConstructorInput): TokenPaymasterProvider {
     if (input.config.maxPaymasterDataLength != null) {
       throw new Error('Token paymaster doesn\'t accept maxPaymasterDataLength modification. Please leave this field empty')
     }
@@ -54,12 +55,12 @@ export class TokenPaymasterProvider extends RelayProvider {
    *
    * @param permitERC20TokenForGas
    */
-  async init (permitERC20TokenForGas?: Address | SupportedTokenSymbols): Promise<this> {
+  async init(permitERC20TokenForGas?: Address | SupportedTokenSymbols): Promise<this> {
     await super.init()
-    const chainId = this.origProvider.network.chainId
+    const { chainId } = await this.origProvider.getNetwork()
 
-    const paymasterAddress = getPaymasterAddressByTypeAndChain(this.config?.paymasterAddress, chainId, this.logger)
-    this.tokenPaymasterInteractor = new TokenPaymasterInteractor(this.origProvider, paymasterAddress as any, this.logger)
+    const paymasterAddress = getPaymasterAddressByTypeAndChain(this.config?.paymasterAddress, Number(chainId), this.logger)
+    this.tokenPaymasterInteractor = new TokenPaymasterInteractor(this.origProvider, paymasterAddress, this.logger)
     await this.tokenPaymasterInteractor.init()
     this.relayClient.dependencies.asyncPaymasterData = this._buildPaymasterData.bind(this)
     if (permitERC20TokenForGas == null) {
@@ -70,7 +71,7 @@ export class TokenPaymasterProvider extends RelayProvider {
     return this
   }
 
-  async _buildPaymasterData (relayRequest: RelayRequest): Promise<PrefixedHexString> {
+  async _buildPaymasterData(relayRequest: RelayRequest): Promise<Hex> {
     if (this.config.tokenPaymasterDomainSeparators == null) {
       throw new Error('TokenPaymasterProvider not initialized. Call init() first')
     }
@@ -80,14 +81,14 @@ export class TokenPaymasterProvider extends RelayProvider {
     }
     const allowance = await this.tokenPaymasterInteractor.getAllowance(relayRequest.request.from, relayRequest.relayData.paymaster)
     let permitMethod = ''
-    if (allowance.eq(0)) {
+    if (allowance === 0n) {
       const domainSeparator: EIP712Domain =
-        this.config.tokenPaymasterDomainSeparators[this.tokenPaymasterInteractor.token.address]
+        this.config.tokenPaymasterDomainSeparators[this.tokenPaymasterInteractor.token.address as Address]
       if (this.tokenPaymasterInteractor.tokenSwapData?.permitMethodSelector === PERMIT_SELECTOR_DAI) {
         permitMethod = await signAndEncodeDaiPermit(
           relayRequest.request.from,
           relayRequest.relayData.paymaster,
-          this.tokenPaymasterInteractor.token.address,
+          this.tokenPaymasterInteractor.token.address as Address,
           constants.MAX_UINT256.toString(),
           this.origProvider,
           domainSeparator,
@@ -98,7 +99,7 @@ export class TokenPaymasterProvider extends RelayProvider {
         permitMethod = await signAndEncodeEIP2612Permit(
           relayRequest.request.from,
           relayRequest.relayData.paymaster,
-          this.tokenPaymasterInteractor.token.address,
+          this.tokenPaymasterInteractor.token.address as Address,
           constants.MAX_UINT256.toString(),
           constants.MAX_UINT256.toString(),
           this.origProvider,
@@ -109,23 +110,23 @@ export class TokenPaymasterProvider extends RelayProvider {
         )
       }
     }
-    return '0x' + removeHexPrefix(this.tokenPaymasterInteractor.token.address) + removeHexPrefix(permitMethod)
+    return ('0x' + removeHexPrefix(this.tokenPaymasterInteractor.token.address) + removeHexPrefix(permitMethod)) as Hex
   }
 
-  async autoSelectToken (): Promise<void> {
+  async autoSelectToken(): Promise<void> {
     const tokenBalancesNativeWei: TokenSelectionDetails[] = []
-    const [account0] = await this.origProvider.listAccounts()
+    const account0 = await this.origProvider.getSigner().getAddress()
     const supportedTokens = await this.tokenPaymasterInteractor.supportedTokens()
     if (supportedTokens.length === 0) {
       throw new Error(`Paymaster ${this.tokenPaymasterInteractor.paymaster.address} does not have configured tokens.`)
     }
     for (const tokenAddress of supportedTokens) {
-      const tokenBalance = await this.tokenPaymasterInteractor.tokenBalanceOf(account0, tokenAddress)
-      const tokenAllowance = await this.tokenPaymasterInteractor.tokenPaymasterAllowance(account0, tokenAddress)
+      const tokenBalance = await this.tokenPaymasterInteractor.tokenBalanceOf(account0 as Address, tokenAddress as Address)
+      const tokenAllowance = await this.tokenPaymasterInteractor.tokenPaymasterAllowance(account0 as Address, tokenAddress as Address)
       const { amountInWei: tokenBalanceNativeWei, actualQuote } =
-        await this.tokenPaymasterInteractor.tokenToWei(tokenAddress, tokenBalance)
+        await this.tokenPaymasterInteractor.tokenToWei(tokenAddress as Address, tokenBalance)
       const { amountInWei: tokenAllowanceNativeWei } =
-        await this.tokenPaymasterInteractor.tokenToWei(tokenAddress, tokenAllowance)
+        await this.tokenPaymasterInteractor.tokenToWei(tokenAddress as Address, tokenAllowance)
       tokenBalancesNativeWei.push({
         address: tokenAddress,
         chainlinkQuote: actualQuote.toString(),
@@ -138,27 +139,27 @@ export class TokenPaymasterProvider extends RelayProvider {
 
     const selectedToken = tokenBalancesNativeWei
       .sort((a, b) => {
-        return toBN(b.balanceWei).gte(toBN(a.balanceWei)) ? 1 : -1
+        return BigInt(b.balanceWei) >= BigInt(a.balanceWei) ? 1 : -1
       })[0]
 
     this.logger.debug(`TokenPaymasterProvider initialized with no token selected and automatically selected token: ${JSON.stringify(selectedToken)}`)
-    await this.setToken(selectedToken.address)
+    await this.setToken(selectedToken.address as Address)
   }
 
-  async setToken (permitERC20TokenForGas: Address | SupportedTokenSymbols): Promise<void> {
-    const chainId = this.origProvider.network.chainId
-    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas as any, chainId) ?? permitERC20TokenForGas.toString().toLowerCase()
+  async setToken(permitERC20TokenForGas: Address | SupportedTokenSymbols): Promise<void> {
+    const { chainId } = await this.origProvider.getNetwork()
+    const tokenAddress = getTokenBySymbol(permitERC20TokenForGas as SupportedTokenSymbols, Number(chainId)) ?? permitERC20TokenForGas.toString().toLowerCase()
     if (tokenAddress == null || !isValidAddress(tokenAddress)) {
       throw new Error(`Unable to find token with name/address ${permitERC20TokenForGas} on chainId ${chainId}`)
     }
 
-    await this.tokenPaymasterInteractor.setToken(tokenAddress)
+    await this.tokenPaymasterInteractor.setToken(tokenAddress as Address)
 
-    const isSupported = await this.tokenPaymasterInteractor.isTokenSupported(tokenAddress)
+    const isSupported = await this.tokenPaymasterInteractor.isTokenSupported(tokenAddress as Address)
     if (!isSupported) {
       throw new Error(`token ${tokenAddress} reported as not supported by paymaster ${this.tokenPaymasterInteractor.paymaster.address}`)
     }
-    if (this.config.tokenPaymasterDomainSeparators[tokenAddress] == null) {
+    if (this.config.tokenPaymasterDomainSeparators[tokenAddress as Address] == null) {
       throw new Error(`Domain separator not found for token ${tokenAddress}`)
     }
   }

@@ -1,7 +1,6 @@
-import { type PrefixedHexString } from 'ethereumjs-util'
 import ow from 'ow'
 
-import { type Address } from './Aliases'
+import { type Address, type PrefixedHexString } from './Aliases'
 import { type RelayRequest } from '../EIP712/RelayRequest'
 
 export interface RelayMetadata {

@@ -1,3 +1,4 @@
+import { type Hex } from 'viem'
 import { replaceErrors } from '@opengsn/common/dist/ErrorReplacerJSON'
 import {
   type Address,
@@ -34,7 +35,7 @@ export class RelaySelectionManager {
   public errors: Map<string, Error> = new Map<string, Error>()
   public priceErrors: Map<string, Error> = new Map<string, Error>()
 
-  constructor (gsnTransactionDetails: GsnTransactionDetails, knownRelaysManager: KnownRelaysManager, httpClient: HttpClient, pingFilter: PingFilter, logger: LoggerInterface, config: GSNConfig) {
+  constructor(gsnTransactionDetails: GsnTransactionDetails, knownRelaysManager: KnownRelaysManager, httpClient: HttpClient, pingFilter: PingFilter, logger: LoggerInterface, config: GSNConfig) {
     this.gsnTransactionDetails = gsnTransactionDetails
     this.knownRelaysManager = knownRelaysManager
     this.httpClient = httpClient
@@ -47,7 +48,7 @@ export class RelaySelectionManager {
    * Ping those relays that were not pinged yet, and remove both the returned relay or relays re from {@link remainingRelays}
    * @returns the first relay to respond to a ping message. Note: will never return the same relay twice.
    */
-  async selectNextRelay (relayHub: Address, paymaster?: Address): Promise<RelaySelectionResult | undefined> {
+  async selectNextRelay(relayHub: Address, paymaster?: Address): Promise<RelaySelectionResult | undefined> {
     while (true) {
       const slice = this._getNextSlice()
       let relayInfo: RelaySelectionResult | undefined
@@ -61,7 +62,7 @@ export class RelaySelectionManager {
     }
   }
 
-  async _nextRelayInternal (
+  async _nextRelayInternal(
     relays: RelayInfoUrl[],
     relayHub: Address,
     paymaster?: Address): Promise<RelaySelectionResult | undefined> {
@@ -101,7 +102,7 @@ export class RelaySelectionManager {
     }
   }
 
-  async init (): Promise<this> {
+  async init(): Promise<this> {
     this.remainingRelays = await this.knownRelaysManager.getRelaysShuffledForTransaction()
     this.isInitialized = true
     return this
@@ -109,11 +110,11 @@ export class RelaySelectionManager {
 
   // relays left to try
   // (note that some edge-cases (like duplicate urls) are not filtered out)
-  relaysLeft (): RelayInfoUrl[] {
+  relaysLeft(): RelayInfoUrl[] {
     return this.remainingRelays.flatMap(list => list)
   }
 
-  _getNextSlice (): RelayInfoUrl[] {
+  _getNextSlice(): RelayInfoUrl[] {
     if (!this.isInitialized) { throw new Error('init() not called') }
     for (const relays of this.remainingRelays) {
       const bulkSize = Math.min(this.config.waitForSuccessSliceSize, relays.length)
@@ -129,7 +130,7 @@ export class RelaySelectionManager {
   /**
    * @returns JSON response from the relay server, but adds the requested URL to it :'-(
    */
-  async _getRelayAddressPing (relayInfo: RelayInfoUrl, relayHub: Address, paymaster?: Address): Promise<PartialRelayInfo> {
+  async _getRelayAddressPing(relayInfo: RelayInfoUrl, relayHub: Address, paymaster?: Address): Promise<PartialRelayInfo> {
     this.logger.info(`getRelayAddressPing URL: ${relayInfo.relayUrl}`)
     const pingResponse = await this.httpClient.getPingResponse(relayInfo.relayUrl, paymaster)
 
@@ -146,7 +147,7 @@ export class RelaySelectionManager {
     }
   }
 
-  async _waitForSuccess (relays: RelayInfoUrl[], relayHub: Address, paymaster?: Address): Promise<WaitForSuccessResults<PartialRelayInfo>> {
+  async _waitForSuccess(relays: RelayInfoUrl[], relayHub: Address, paymaster?: Address): Promise<WaitForSuccessResults<PartialRelayInfo>> {
     // go through a Map to remove duplicates
     const asMap = new Map<string, RelayInfoUrl>()
     relays.forEach(it => {
@@ -163,7 +164,7 @@ export class RelaySelectionManager {
     return await waitForSuccess(promises, errorKeys, this.config.waitForSuccessPingGrace)
   }
 
-  _handleWaitForSuccessResults (
+  _handleWaitForSuccessResults(
     raceResult: WaitForSuccessResults<PartialRelayInfo>,
     skippedRelays: string[],
     winner?: PartialRelayInfo
@@ -176,7 +177,7 @@ export class RelaySelectionManager {
       })
       .reduce((a, b) => { return a + b }, 0)
 
-    function notWinner (eventInfo: RelayInfoUrl): boolean {
+    function notWinner(eventInfo: RelayInfoUrl): boolean {
       if (winner == null) {
         return true
       }
@@ -185,12 +186,12 @@ export class RelaySelectionManager {
       return eventUrl !== winnerUrl
     }
 
-    function notError (eventInfo: RelayInfoUrl): boolean {
+    function notError(eventInfo: RelayInfoUrl): boolean {
       const urls = Array.from(raceResult.errors.keys()).map(it => new URL(it).toString())
       return !urls.includes(new URL(eventInfo.relayUrl).toString())
     }
 
-    function notSkipped (eventInfo: RelayInfoUrl): boolean {
+    function notSkipped(eventInfo: RelayInfoUrl): boolean {
       // remove relays skipped (due to gas fees being wrong)
       return !skippedRelays
         .map(it => new URL(it).toString())
@@ -212,7 +213,7 @@ export class RelaySelectionManager {
     this.logger.debug(`_handleWaitForSuccessResults info ${totalRemainingRelaysBefore} ${totalRemainingRelaysAfter} ${touched}`)
   }
 
-  selectWinnerFromResult (
+  selectWinnerFromResult(
     allPingResults: WaitForSuccessResults<PartialRelayInfo>
   ): { winner?: RelaySelectionResult, skippedRelays: string[] } {
     if (allPingResults.results.length === 0) {
@@ -229,7 +230,7 @@ export class RelaySelectionManager {
   /**
    * Pick a random relay among those that satisfy the original client gas fees parameters.
    */
-  selectWinnerWithoutAdjustingFees (
+  selectWinnerWithoutAdjustingFees(
     allPingResults: WaitForSuccessResults<PartialRelayInfo>
   ): RelaySelectionResult | undefined {
     const relaysWithSatisfyingFees =
@@ -246,7 +247,10 @@ export class RelaySelectionManager {
     }
     return {
       relayInfo: pickRandomElementFromArray(relaysWithSatisfyingFees),
-      updatedGasFees: this.gsnTransactionDetails,
+      updatedGasFees: {
+        maxFeePerGas: this.gsnTransactionDetails.maxFeePerGas as Hex,
+        maxPriorityFeePerGas: this.gsnTransactionDetails.maxPriorityFeePerGas as Hex
+      },
       maxDeltaPercent: 0
     }
   }
@@ -256,13 +260,16 @@ export class RelaySelectionManager {
    * As these Relay Servers did not agree to our suggested gas fees, we cannot rely on Random to pick a winner.
    * Pick Relay Servers deterministically with the closest gas fees instead.
    */
-  selectWinnerByAdjustingFees (
+  selectWinnerByAdjustingFees(
     allPingResults: WaitForSuccessResults<PartialRelayInfo>
   ): { winner?: RelaySelectionResult, skippedRelays: string[] } {
     const skippedRelays: string[] = []
     const adjustedArray = allPingResults.results
       .map(it => {
-        return adjustRelayRequestForPingResponse(this.gsnTransactionDetails, it, this.logger)
+        return adjustRelayRequestForPingResponse({
+          maxFeePerGas: this.gsnTransactionDetails.maxFeePerGas as Hex,
+          maxPriorityFeePerGas: this.gsnTransactionDetails.maxPriorityFeePerGas as Hex
+        }, it, this.logger)
       })
       .filter(it => {
         const isGasPriceWithinSlack = it.maxDeltaPercent <= this.config.gasPriceSlackPercent

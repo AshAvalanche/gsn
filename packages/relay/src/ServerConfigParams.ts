@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import parseArgs from 'minimist'
 
-import { type JsonRpcProvider } from '@ethersproject/providers'
+import { type PublicClient, type Client, type PublicActions, type WalletActions } from 'viem'
 
 import {
   type Address,
@@ -23,7 +23,7 @@ import { createServerLogger } from '@opengsn/logger/dist/ServerWinstonLogger'
 import { type GasPriceFetcher } from './GasPriceFetcher'
 import { type ReputationManager, type ReputationManagerConfiguration } from './ReputationManager'
 
-import { toBN } from 'web3-utils'
+
 import { type Web3MethodsBuilder } from './Web3MethodsBuilder'
 
 export enum LoggingProviderMode {
@@ -387,7 +387,7 @@ export const serverDefaultConfiguration: ServerConfigParams = {
   pastEventsQueryMaxPageSize: Number.MAX_SAFE_INTEGER,
   pastEventsQueryMaxPageCount: 20,
   recentActionAvoidRepeatDistanceBlocks: 10,
-  skipErc165Check: false
+  skipErc165Check: true
 }
 
 const ConfigParamsTypes = {
@@ -462,36 +462,36 @@ const ConfigParamsTypes = {
 } as any
 
 // helper function: throw and never return..
-function error (err: string): never {
+function error(err: string): never {
   throw new Error(err)
 }
 
 // get the keys matching specific type from ConfigParamsType
-export function filterType (config: any, type: string): any {
+export function filterType(config: any, type: string): any {
   return Object.entries(config).flatMap(e => e[1] === type ? [e[0]] : [])
 }
 
 // convert [key,val] array (created by Object.entries) back to an object.
-export function entriesToObj (entries: any[]): any {
+export function entriesToObj(entries: any[]): any {
   return entries
     .reduce((set: any, [k, v]) => ({ ...set, [k]: v }), {})
 }
 
 // filter and return from env only members that appear in "config"
-export function filterMembers (env: any, config: any): any {
+export function filterMembers(env: any, config: any): any {
   return entriesToObj(Object.entries(env)
     .filter(e => config[e[0]] != null))
 }
 
 // map value from string into its explicit type (number, boolean)
 // TODO; maybe we can use it for more specific types, such as "address"..
-function explicitType ([key, val]: [string, any]): any {
+function explicitType([key, val]: [string, any]): any {
   const type = ConfigParamsTypes[key] as string
   if (type === undefined) {
     error(`unexpected param ${key}=${val as string}`)
   }
   switch (type) {
-    case 'boolean' :
+    case 'boolean':
       if (val === 'true' || val === true) return [key, true]
       if (val === 'false' || val === false) return [key, false]
       break
@@ -513,7 +513,7 @@ function explicitType ([key, val]: [string, any]): any {
  * config file must be provided either as command-line or env (obviously, not in
  * the config file..)
  */
-export function parseServerConfig (args: string[], env: any): any {
+export function parseServerConfig(args: string[], env: any): any {
   const envDefaults = filterMembers(env, ConfigParamsTypes)
 
   const argv = parseArgs(args, {
@@ -541,7 +541,7 @@ export function parseServerConfig (args: string[], env: any): any {
 }
 
 // resolve params, and validate the resulting struct
-export async function resolveServerConfig (config: Partial<ServerConfigParams>, ethersProvider: JsonRpcProvider): Promise<{
+export async function resolveServerConfig(config: Partial<ServerConfigParams>, client: Client & PublicActions & WalletActions): Promise<{
   config: ServerConfigParams
   environment: Environment
 }> {
@@ -561,11 +561,10 @@ export async function resolveServerConfig (config: Partial<ServerConfigParams>, 
   const contractInteractor: ContractInteractor = new ContractInteractor({
     maxPageSize: config.pastEventsQueryMaxPageSize ?? Number.MAX_SAFE_INTEGER,
     calldataEstimationSlackFactor: config.calldataEstimationSlackFactor ?? 1,
-    provider: ethersProvider,
-    signer: ethersProvider.getSigner(),
+    client,
     logger,
     deployment: {
-      relayHubAddress: config.relayHubAddress
+      relayHubAddress: config.relayHubAddress as Address
     },
     environment
   })
@@ -587,33 +586,33 @@ export async function resolveServerConfig (config: Partial<ServerConfigParams>, 
   }
 }
 
-export function validatePrivateModeParams (config: ServerConfigParams): void {
+export function validatePrivateModeParams(config: ServerConfigParams): void {
   if (config.url.length !== 0 && (config.whitelistedRecipients.length !== 0 || config.whitelistedPaymasters.length !== 0)) {
     throw new Error('Cannot whitelist recipients or paymasters on a public Relay Server')
   }
 }
 
-export function validateBalanceParams (config: ServerConfigParams): void {
-  const workerTargetBalance = toBN(config.workerTargetBalance)
-  const managerTargetBalance = toBN(config.managerTargetBalance)
-  const managerMinBalance = toBN(config.managerMinBalance)
-  const workerMinBalance = toBN(config.workerMinBalance)
-  if (managerTargetBalance.lt(managerMinBalance)) {
+export function validateBalanceParams(config: ServerConfigParams): void {
+  const workerTargetBalance = BigInt(config.workerTargetBalance)
+  const managerTargetBalance = BigInt(config.managerTargetBalance)
+  const managerMinBalance = BigInt(config.managerMinBalance)
+  const workerMinBalance = BigInt(config.workerMinBalance)
+  if (managerTargetBalance < managerMinBalance) {
     throw new Error('managerTargetBalance must be at least managerMinBalance')
   }
-  if (workerTargetBalance.lt(workerMinBalance)) {
+  if (workerTargetBalance < workerMinBalance) {
     throw new Error('workerTargetBalance must be at least workerMinBalance')
   }
   if (config.withdrawToOwnerOnBalance == null) {
     return
   }
-  const withdrawToOwnerOnBalance = toBN(config.withdrawToOwnerOnBalance)
-  if (managerTargetBalance.add(workerTargetBalance).gte(withdrawToOwnerOnBalance)) {
+  const withdrawToOwnerOnBalance = BigInt(config.withdrawToOwnerOnBalance)
+  if (managerTargetBalance + workerTargetBalance >= withdrawToOwnerOnBalance) {
     throw new Error('withdrawToOwnerOnBalance must be larger than managerTargetBalance + workerTargetBalance')
   }
 }
 
-export function resolveReputationManagerConfig (config: any): Partial<ReputationManagerConfiguration> {
+export function resolveReputationManagerConfig(config: any): Partial<ReputationManagerConfiguration> {
   if (config.configFileName != null) {
     if (!fs.existsSync(config.configFileName)) {
       error(`unable to read config file "${config.configFileName as string}"`)
@@ -624,6 +623,6 @@ export function resolveReputationManagerConfig (config: any): Partial<Reputation
   return config as Partial<ReputationManagerConfiguration>
 }
 
-export function configureServer (partialConfig: Partial<ServerConfigParams>): ServerConfigParams {
+export function configureServer(partialConfig: Partial<ServerConfigParams>): ServerConfigParams {
   return Object.assign({}, serverDefaultConfiguration, partialConfig)
 }

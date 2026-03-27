@@ -1,4 +1,4 @@
-import { type PrefixedHexString } from 'ethereumjs-util'
+import { type PrefixedHexString } from './types/Aliases'
 
 import { type PingResponse } from './PingResponse'
 import { type LoggerInterface } from './LoggerInterface'
@@ -14,12 +14,12 @@ export class HttpClient {
   private readonly httpWrapper: HttpWrapper
   private readonly logger: LoggerInterface
 
-  constructor (httpWrapper: HttpWrapper, logger: LoggerInterface) {
+  constructor(httpWrapper: HttpWrapper, logger: LoggerInterface) {
     this.httpWrapper = httpWrapper
     this.logger = logger
   }
 
-  async getPingResponse (relayUrl: string, paymaster?: string): Promise<PingResponse> {
+  async getPingResponse(relayUrl: string, paymaster?: string): Promise<PingResponse> {
     const url = new URL('getaddr', appendSlashTrim(relayUrl))
     if (paymaster != null) {
       url.searchParams.set('paymaster', paymaster)
@@ -32,7 +32,7 @@ export class HttpClient {
     return pingResponse
   }
 
-  async relayTransaction (relayUrl: string, request: RelayTransactionRequest): Promise<{ signedTx: PrefixedHexString, nonceGapFilled: ObjectMap<PrefixedHexString> }> {
+  async relayTransaction(relayUrl: string, request: RelayTransactionRequest): Promise<{ signedTx: PrefixedHexString, nonceGapFilled: ObjectMap<PrefixedHexString> }> {
     const url = new URL('relay', appendSlashTrim(relayUrl))
     const {
       signedTx,
@@ -49,7 +49,7 @@ export class HttpClient {
     return { signedTx, nonceGapFilled }
   }
 
-  async auditTransaction (relayUrl: string, signedTx: PrefixedHexString): Promise<AuditResponse> {
+  async auditTransaction(relayUrl: string, signedTx: PrefixedHexString): Promise<AuditResponse> {
     const url = new URL('audit', appendSlashTrim(relayUrl))
     const auditRequest: AuditRequest = { signedTx }
     const auditResponse: AuditResponse = await this.httpWrapper.sendPromise(url, auditRequest)
@@ -57,13 +57,13 @@ export class HttpClient {
     return auditResponse
   }
 
-  async getNetworkConfiguration (clientDefaultConfigUrl: string): Promise<ConfigResponse> {
+  async getNetworkConfiguration(clientDefaultConfigUrl: string): Promise<ConfigResponse> {
     const configResponse: ConfigResponse = await this.httpWrapper.sendPromise(new URL(clientDefaultConfigUrl))
     this.logger.info(`Config response: ${JSON.stringify(configResponse)}`)
     return configResponse
   }
 
-  async getVerifyingPaymasterAddress (verifierServerUrl: string, chainId: number): Promise<Address> {
+  async getVerifyingPaymasterAddress(verifierServerUrl: string, chainId: number): Promise<Address> {
     const url = new URL('getPaymasterAddress', appendSlashTrim(verifierServerUrl))
     url.searchParams.set('chainId', chainId.toString())
     const { paymasterAddress } = await this.httpWrapper.sendPromise(url)

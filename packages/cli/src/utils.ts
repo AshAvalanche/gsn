@@ -1,4 +1,3 @@
-// TODO: allow reading network URLs from 'truffle-config.js'
 import commander, { type CommanderStatic } from 'commander'
 import fs from 'fs'
 import path from 'path'
@@ -31,11 +30,11 @@ export const networksBlockExplorers = new Map<string, string>([
   ['mainnet', 'https://etherscan.io/']
 ])
 
-export function supportedNetworks (): string[] {
+export function supportedNetworks(): string[] {
   return Array.from(networks.keys())
 }
 
-export function getNetworkUrl (network: string, env: Record<string, string | undefined> = process.env): string {
+export function getNetworkUrl(network: string, env: Record<string, string | undefined> = process.env): string {
   const net = networks.get(network)
   if (net == null) {
     const match = network.match(/^(https?:\/\/.*)/) ?? []
@@ -55,7 +54,7 @@ export function getNetworkUrl (network: string, env: Record<string, string | und
   return net
 }
 
-export function getMnemonic (mnemonicFile: string): string | undefined {
+export function getMnemonic(mnemonicFile: string): string | undefined {
   if (mnemonicFile == null || mnemonicFile === '') {
     return
   }
@@ -63,7 +62,7 @@ export function getMnemonic (mnemonicFile: string): string | undefined {
   return fs.readFileSync(mnemonicFile, { encoding: 'utf8' }).replace(/\r?\n|\r/g, '')
 }
 
-export function getKeystorePath (keystorePath: string): string {
+export function getKeystorePath(keystorePath: string): string {
   if (!fs.existsSync(keystorePath)) {
     throw new Error(`keystorePath ${keystorePath} not found`)
   }
@@ -75,14 +74,14 @@ export function getKeystorePath (keystorePath: string): string {
   throw new Error(`keystorePath ${keystorePath} not a file or directory`)
 }
 
-export function getServerConfig (configFilename: string): ServerConfigParams {
+export function getServerConfig(configFilename: string): ServerConfigParams {
   if (!fs.existsSync(configFilename) || !fs.lstatSync(configFilename).isFile()) {
     throw new Error(`configFilename ${configFilename} must be a file`)
   }
   return JSON.parse(fs.readFileSync(configFilename, 'utf8'))
 }
 
-export function getRelayHubConfiguration (configFile: string): RelayHubConfiguration | undefined {
+export function getRelayHubConfiguration(configFile: string): RelayHubConfiguration | undefined {
   if (configFile == null) {
     return
   }
@@ -91,15 +90,15 @@ export function getRelayHubConfiguration (configFile: string): RelayHubConfigura
   return JSON.parse(file)
 }
 
-export function getPaymasterAddress (paymaster?: string): string | undefined {
+export function getPaymasterAddress(paymaster?: string): string | undefined {
   return getAddressFromFile('build/gsn/Paymaster.json', paymaster)
 }
 
-export function getRelayHubAddress (defaultAddress?: string): string | undefined {
+export function getRelayHubAddress(defaultAddress?: string): string | undefined {
   return getAddressFromFile('build/gsn/RelayHub.json', defaultAddress)
 }
 
-function getAddressFromFile (path: string, defaultAddress?: string): string | undefined {
+function getAddressFromFile(path: string, defaultAddress?: string): string | undefined {
   if (defaultAddress == null) {
     if (fs.existsSync(path)) {
       const relayHubDeployInfo = fs.readFileSync(path).toString()
@@ -109,7 +108,7 @@ function getAddressFromFile (path: string, defaultAddress?: string): string | un
   return defaultAddress
 }
 
-function saveContractToFile (address: Address | undefined, workdir: string, filename: string): void {
+function saveContractToFile(address: Address | undefined, workdir: string, filename: string): void {
   if (address == null) {
     throw new Error('Address is not initialized!')
   }
@@ -117,7 +116,7 @@ function saveContractToFile (address: Address | undefined, workdir: string, file
   fs.writeFileSync(path.join(workdir, filename), `{ "address": "${address}" }`)
 }
 
-export function saveDeployment (deploymentResult: GSNContractsDeployment, workdir: string): void {
+export function saveDeployment(deploymentResult: GSNContractsDeployment, workdir: string): void {
   saveContractToFile(deploymentResult.stakeManagerAddress, workdir, 'StakeManager.json')
   saveContractToFile(deploymentResult.penalizerAddress, workdir, 'Penalizer.json')
   saveContractToFile(deploymentResult.relayHubAddress, workdir, 'RelayHub.json')
@@ -127,7 +126,7 @@ export function saveDeployment (deploymentResult: GSNContractsDeployment, workdi
   saveContractToFile(deploymentResult.managerStakeTokenAddress, workdir, 'ManagerStakeTokenAddress.json')
 }
 
-export function showDeployment (
+export function showDeployment(
   deploymentResult: GSNContractsDeployment,
   title: string | undefined,
   logger: LoggerInterface,
@@ -146,25 +145,25 @@ export function showDeployment (
   Paymaster ${paymasterTitle != null ? '(' + paymasterTitle + ')' : ''}: ${deploymentResult.paymasterAddress}`)
 }
 
-export function loadDeployment (workdir: string): GSNContractsDeployment {
-  function getAddress (name: string): string {
+export function loadDeployment(workdir: string): GSNContractsDeployment {
+  function getAddress(name: string): string {
     return getAddressFromFile(path.join(workdir, name + '.json')) as string
   }
 
   return {
-    relayHubAddress: getAddress('RelayHub'),
-    relayRegistrarAddress: getAddress('RelayRegistrar'),
-    stakeManagerAddress: getAddress('StakeManager'),
-    managerStakeTokenAddress: getAddress('ManagerStakeTokenAddress'),
-    penalizerAddress: getAddress('Penalizer'),
-    forwarderAddress: getAddress('Forwarder'),
-    paymasterAddress: getAddress('Paymaster')
+    relayHubAddress: getAddress('RelayHub') as Address,
+    relayRegistrarAddress: getAddress('RelayRegistrar') as Address,
+    stakeManagerAddress: getAddress('StakeManager') as Address,
+    managerStakeTokenAddress: getAddress('ManagerStakeTokenAddress') as Address,
+    penalizerAddress: getAddress('Penalizer') as Address,
+    forwarderAddress: getAddress('Forwarder') as Address,
+    paymasterAddress: getAddress('Paymaster') as Address
   }
 }
 
 type GsnOption = 'n' | 'f' | 'h' | 'm' | 'g' | 'l'
 
-export function gsnCommander (options: GsnOption[]): CommanderStatic {
+export function gsnCommander(options: GsnOption[]): CommanderStatic {
   options.forEach(option => {
     switch (option) {
       case 'n':

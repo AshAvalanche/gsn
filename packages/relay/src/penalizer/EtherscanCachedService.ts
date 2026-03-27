@@ -1,18 +1,18 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 
 import { type BlockExplorerInterface, type EtherscanResponse, type TransactionData } from './BlockExplorerInterface'
-import { type Address, isSameAddress, type LoggerInterface } from '@opengsn/common'
+import { type Address, isSameAddress, type LoggerInterface, sleep } from '@opengsn/common'
 
 import { type TransactionDataCache } from './TransactionDataCache'
 
 export class EtherscanCachedService implements BlockExplorerInterface {
-  constructor (
+  constructor(
     readonly url: string,
     readonly etherscanApiKey: string,
     readonly logger: LoggerInterface,
-    readonly transactionDataCache: TransactionDataCache) {}
+    readonly transactionDataCache: TransactionDataCache) { }
 
-  async getTransactionByNonce (address: Address, nonce: number): Promise<TransactionData | undefined> {
+  async getTransactionByNonce(address: Address, nonce: number): Promise<TransactionData | undefined> {
     const { transaction, lastPageQueried } = await this.queryCachedTransactions(address, nonce)
     if (transaction != null) {
       return transaction
@@ -20,7 +20,7 @@ export class EtherscanCachedService implements BlockExplorerInterface {
     return await this.searchTransactionEtherscan(address, nonce, lastPageQueried)
   }
 
-  async searchTransactionEtherscan (address: string, nonce: number, lastPageQueried: number): Promise<TransactionData | undefined> {
+  async searchTransactionEtherscan(address: Address, nonce: number, lastPageQueried: number): Promise<TransactionData | undefined> {
     const pageSize = 10
     let page = lastPageQueried + 1
     let response: AxiosResponse<EtherscanResponse>
@@ -44,8 +44,8 @@ export class EtherscanCachedService implements BlockExplorerInterface {
       } else if (response.data.status !== '0') {
         this.logger.warn(`Request to ${this.url} returned with ${response.data.status} ${response.data.message}`)
       }
-      const outgoingTransactions = response.data.result.filter((it) => isSameAddress(it.from, address))
-      await this.cacheResponse(outgoingTransactions, address, page)
+      const outgoingTransactions = response.data.result.filter((it: any) => isSameAddress(it.from, address))
+      await this.cacheResponse(outgoingTransactions, address as Address, page)
       const transaction = outgoingTransactions.find((it) => parseInt(it.nonce) === nonce)
       if (transaction != null) {
         return transaction
@@ -55,13 +55,13 @@ export class EtherscanCachedService implements BlockExplorerInterface {
     return undefined
   }
 
-  async queryCachedTransactions (address: Address, nonce: number): Promise<{ transaction?: TransactionData, lastPageQueried: number }> {
+  async queryCachedTransactions(address: Address, nonce: number): Promise<{ transaction?: TransactionData, lastPageQueried: number }> {
     const transaction = await this.transactionDataCache.getTransactionByNonce(address, nonce)
     const lastPageQueried = await this.transactionDataCache.getLastPageQueried(address)
     return { transaction, lastPageQueried }
   }
 
-  async cacheResponse (transactions: TransactionData[], sender: Address, page: number): Promise<void> {
+  async cacheResponse(transactions: TransactionData[], sender: Address, page: number): Promise<void> {
     await this.transactionDataCache.putTransactions(transactions, sender, page)
   }
 }

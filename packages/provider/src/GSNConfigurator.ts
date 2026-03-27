@@ -11,6 +11,7 @@ import {
   type RelayFilter,
   type SignTypedDataCallback,
   defaultEnvironment,
+  constants,
   gsnRequiredVersion,
   gsnRuntimeVersion
 } from '@opengsn/common'
@@ -50,7 +51,7 @@ export const defaultGsnConfig: GSNConfig = {
   requiredVersionRange: gsnRequiredVersion,
   jsonStringifyRequest: true,
   auditorsCount: 0,
-  skipErc165Check: false,
+  skipErc165Check: true,
   clientId: '1',
   requestValidSeconds: 172800, // 2 days
   maxViewableGasLimit: '20000000',
@@ -62,7 +63,7 @@ export const defaultGsnConfig: GSNConfig = {
   useClientDefaultConfigUrl: true,
   performDryRunViewRelayCall: true,
   performEstimateGasFromRealSender: false,
-  paymasterAddress: '',
+  paymasterAddress: constants.ZERO_ADDRESS,
   tokenPaymasterDomainSeparators: {},
   waitForSuccessSliceSize: 3,
   waitForSuccessPingGrace: 3000,

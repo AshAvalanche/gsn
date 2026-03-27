@@ -1,28 +1,15 @@
 /* eslint-disable no-void */
 // @ts-ignore
 
-import { BigNumber } from '@ethersproject/bignumber'
-import { type PrefixedHexString } from 'ethereumjs-util'
-import { type TypedMessage } from '@metamask/eth-sig-util'
-import {
-  type ExternalProvider,
-  type JsonRpcProvider,
-  type JsonRpcSigner,
-  type TransactionReceipt,
-  type TransactionRequest,
-  Web3Provider
-} from '@ethersproject/providers'
-import { Interface, type LogDescription } from '@ethersproject/abi'
-
-import { type Eip1193Provider, type BrowserProvider, type Signer as SignerV6 } from 'ethers-v6/providers'
+import { type Abi, decodeEventLog, type Log } from 'viem'
 
 import {
   type Address,
+  type Hex,
   type EventData,
   type GSNConfig,
   gsnRuntimeVersion,
-  type GsnTransactionDetails,
-  isSameAddress,
+  type GsnTransactionDetails, isSameAddress, type PrefixedHexString,
   type JsonRpcPayload,
   type JsonRpcResponse,
   type LoggerInterface,
@@ -36,9 +23,56 @@ import relayHubAbi from '@opengsn/common/dist/interfaces/IRelayHub.json'
 import { type AccountKeypair } from './AccountManager'
 import { type GsnEvent } from './GsnEvents'
 import { _dumpRelayingResult, type GSNUnresolvedConstructorInput, RelayClient, type RelayingResult } from './RelayClient'
-import { type Signer } from '@ethersproject/abstract-signer'
+import { type WrappedProvider, type WrappedSigner } from './WrappedProviderTypes'
 
 export type JsonRpcCallback = (error: Error | null, result?: JsonRpcResponse) => void
+
+export interface GsnReceiptLog {
+  address: string
+  topics: string[]
+  data: string
+  blockNumber: number
+  transactionHash: string
+  transactionIndex: number
+  blockHash: string
+  logIndex?: number
+  removed?: boolean
+}
+
+export interface GsnTransactionReceipt {
+  type?: number
+  to: string
+  from: string
+  contractAddress: string
+  logsBloom: string
+  blockHash: string
+  transactionHash: string
+  transactionIndex: number
+  gasUsed: bigint | number
+  logs: GsnReceiptLog[]
+  blockNumber: number
+  cumulativeGasUsed: bigint | number
+  effectiveGasPrice: bigint | number
+  status: string | number
+  // GSN-specific extra fields
+  actualTransactionHash?: string
+  hash?: string
+}
+
+export interface GsnTransactionConfig {
+  from?: string
+  to?: string
+  data?: string
+  value?: string
+  gas?: string
+  gasPrice?: string
+  maxFeePerGas?: string
+  maxPriorityFeePerGas?: string
+  nonce?: number
+  chainId?: number
+  type?: number
+  gasLimit?: bigint | number
+}
 
 /**
  * This data can later be used to optimize creation of Transaction Receipts
@@ -54,10 +88,10 @@ const TX_NOTFOUND = 'tx-notfound'
 
 const BLOCKS_FOR_LOOKUP = 5000
 
-export class RelayProvider implements ExternalProvider, Eip1193Provider {
-  protected origProvider!: JsonRpcProvider
-  protected origSigner!: JsonRpcSigner
-  private _origProviderSend!: (method: string, params: any[]) => Promise<any>
+export class RelayProvider {
+  protected origProvider!: WrappedProvider
+  protected origSigner!: WrappedSigner
+  private _origProviderSend!: (method: string, params: unknown[]) => Promise<unknown>
   private asyncSignTypedData?: SignTypedDataCallback
   protected readonly submittedRelayRequests = new Map<string, SubmittedRelayRequestInfo>()
   protected config!: GSNConfig
@@ -69,75 +103,23 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
   connected!: boolean
 
   /**
-   * Warning. This method has been deprecated due to ambiguity of the term 'Provider'.
-   * Library-specific methods are created instead.
-   * See: {@link newWeb3Provider},  {@link newEthersV5Provider}, {@link newEthersV6Provider}
-   * @deprecated
+   * Create a GSN RelayProvider
    */
-  static newProvider (...args: any[]): any {
-    throw new Error(
-      'This method has been deprecated to avoid confusion. Please use one of the following:\n' +
-      'newWeb3Provider - to create an EIP-1193 Provider compatible with Web3.js\n' +
-      'newEthersV5Provider - to create a pair of Provider and Signer objects compatible with Ethers.js v5\n' +
-      'newEthersV6Provider - to create a pair of Provider and Signer objects compatible with Ethers.js v6'
-    )
-  }
-
-  /**
-   * Create a GSN Provider that is compatible with both {@link ExternalProvider} and {@link Eip1193Provider} interfaces
-   */
-  static async newWeb3Provider (input: GSNUnresolvedConstructorInput): Promise<RelayProvider> {
+  static async newWeb3Provider(input: GSNUnresolvedConstructorInput): Promise<RelayProvider> {
     return await new RelayProvider(new RelayClient(input)).init()
   }
 
-  /**
-   * Create a GSN Provider and Signer that are compatible with {@link Web3Provider} and {@link Signer} interfaces
-   */
-  static async newEthersV5Provider (input: GSNUnresolvedConstructorInput): Promise<{
-    relayProvider: RelayProvider
-    gsnProvider: Web3Provider
-    gsnSigner: Signer
-  }> {
-    const relayProvider = await RelayProvider.newWeb3Provider(input)
-    if (relayProvider.relayClient.isUsingEthersV6()) {
-      throw new Error('Creating Ethers v5 GSN Provider with Ethers v6 input is forbidden!')
-    }
-    const gsnProvider = new Web3Provider(relayProvider)
-    const gsnSigner = gsnProvider.getSigner()
-    return { gsnProvider, gsnSigner, relayProvider }
-  }
-
-  /**
-   * @experimental support for Ethers.js v6 in GSN is highly experimental!
-   * Create a GSN Provider and Signer that are compatible with {@link BrowserProvider} and {@link SignerV6} interfaces
-   */
-  static async newEthersV6Provider (input: GSNUnresolvedConstructorInput): Promise<{
-    relayProvider: RelayProvider
-    gsnProvider: BrowserProvider
-    gsnSigner: SignerV6
-  }> {
-    const { BrowserProvider } = await import('ethers-v6/providers')
-    const relayProvider = await RelayProvider.newWeb3Provider(input)
-    if (!relayProvider.relayClient.isUsingEthersV6()) {
-      throw new Error('Creating Ethers v6 GSN provider with Ethers v5 input is forbidden!')
-    }
-    // Warning: types imported from 'ethers-v6' are not technically "same" as types of dynamically imported libraries
-    const gsnProvider: any = new BrowserProvider(relayProvider)
-    const gsnSigner = await gsnProvider.getSigner()
-    return { gsnProvider, gsnSigner, relayProvider }
-  }
-
-  constructor (
+  constructor(
     relayClient: RelayClient
   ) {
-    if ((relayClient as any).send != null) {
-      throw new Error('Using new RelayProvider() constructor directly is deprecated.\nPlease create provider using RelayProvider.newProvider({})')
+    if ((relayClient as unknown as Record<string, unknown>).send != null) {
+      throw new Error('Using new RelayProvider() constructor directly is deprecated.\nPlease create provider using RelayProvider.newWeb3Provider({})')
     }
     this.relayClient = relayClient
     this.logger = this.relayClient.logger
   }
 
-  origProviderSend (payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  origProviderSend(payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     this._origProviderSend(payload.method, payload.params ?? []).then((it: any) => {
       const response: JsonRpcResponse = {
         jsonrpc: '2.0',
@@ -150,7 +132,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     })
   }
 
-  protected async init (): Promise<this> {
+  protected async init(): Promise<this> {
     await this.relayClient.init()
     this.origProvider = this.relayClient.wrappedUnderlyingProvider
     this.origSigner = this.relayClient.wrappedUnderlyingSigner
@@ -162,15 +144,15 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     return this
   }
 
-  registerEventListener (handler: (event: GsnEvent) => void): void {
+  registerEventListener(handler: (event: GsnEvent) => void): void {
     this.relayClient.registerEventListener(handler)
   }
 
-  unregisterEventListener (handler: (event: GsnEvent) => void): void {
+  unregisterEventListener(handler: (event: GsnEvent) => void): void {
     this.relayClient.unregisterEventListener(handler)
   }
 
-  _delegateEventsApi (): void {
+  _delegateEventsApi(): void {
     // If the subprovider is a ws or ipc provider, then register all its methods on this provider
     // and delegate calls to the subprovider. This allows subscriptions to work.
     ['on', 'removeListener', 'removeAllListeners', 'reset', 'disconnect', 'addDefaultEvents', 'once', 'reconnect'].forEach(func => {
@@ -187,7 +169,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * @param method
    * @param params
    */
-  async request ({ method, params }: { method: string, params?: any[] }): Promise<any> {
+  async request({ method, params }: { method: string, params?: any[] }): Promise<any> {
     const paramBlock = {
       method,
       params,
@@ -205,7 +187,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     })
   }
 
-  send (payload: JsonRpcPayload | any, callback: JsonRpcCallback): void {
+  send(payload: JsonRpcPayload | any, callback: JsonRpcCallback): void {
     if (this._useGSN(payload)) {
       if (payload.method === 'eth_sendTransaction') {
         // @ts-ignore
@@ -245,7 +227,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     this.origProviderSend(payload, callback)
   }
 
-  _ethGetTransactionReceiptWithTransactionHash (payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  _ethGetTransactionReceiptWithTransactionHash(payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     this.logger.info('calling sendAsync' + JSON.stringify(payload))
     this.origProviderSend(payload, (error: Error | null, rpcResponse?: JsonRpcResponse): void => {
       // Sometimes, ganache seems to return 'false' for 'no error' (breaking TypeScript declarations)
@@ -269,7 +251,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * @param payload original payload. used to copy rpc param (jsonrpc, id)
    * @param callback callback to call result or error (for exception)
    */
-  asCallback (promise: Promise<any>, payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  asCallback(promise: Promise<any>, payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     promise
       .then(result => {
         callback(null, {
@@ -290,7 +272,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
       })
   }
 
-  async _getSubmissionDetailsForRelayRequestId (relayRequestID: PrefixedHexString): Promise<SubmittedRelayRequestInfo> {
+  async _getSubmissionDetailsForRelayRequestId(relayRequestID: PrefixedHexString): Promise<SubmittedRelayRequestInfo> {
     const submissionDetails = this.submittedRelayRequests.get(relayRequestID)
     if (submissionDetails != null) {
       return submissionDetails
@@ -304,14 +286,14 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
   }
 
-  async _ethGetTransactionByHash (payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
+  async _ethGetTransactionByHash(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     // @ts-ignore
     const relayRequestID = payload.params[0]
     let txHash = await this.getTransactionHashFromRequestId(relayRequestID)
     if (!txHash.startsWith('0x')) {
       txHash = relayRequestID
     }
-    const tx = await this._origProviderSend('eth_getTransactionByHash', [txHash])
+    const tx = await this._origProviderSend('eth_getTransactionByHash', [txHash]) as Record<string, unknown> | null
     if (tx != null) {
       // must return exactly what was requested...
       tx.hash = relayRequestID
@@ -325,7 +307,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * @param payload
    * @param callback
    */
-  async _ethGetTransactionReceipt (payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
+  async _ethGetTransactionReceipt(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
     const relayRequestID = payload.params?.[0] as string
     const hasPrefix = relayRequestID.includes('0x00000000')
@@ -346,7 +328,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
   }
 
-  async _ethSendTransaction (payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
+  async _ethSendTransaction(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     this.logger.info('calling sendAsync' + JSON.stringify(payload))
     let gsnTransactionDetails: GsnTransactionDetails
     try {
@@ -366,9 +348,9 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
   }
 
-  _onRelayTransactionFulfilled (relayingResult: RelayingResult, payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  _onRelayTransactionFulfilled(relayingResult: RelayingResult, payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     if (relayingResult.relayRequestID != null) {
-      const jsonRpcSendResult = this._convertRelayRequestIdToRpcSendResponse(relayingResult.relayRequestID, payload)
+      const jsonRpcSendResult = this._convertRelayRequestIdToRpcSendResponse(relayingResult.relayRequestID as Hex, payload)
       this.cacheSubmittedTransactionDetails(relayingResult)
       callback(null, jsonRpcSendResult)
     } else {
@@ -378,14 +360,14 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
   }
 
-  _onRelayTransactionRejected (reason: any, callback: JsonRpcCallback): void {
+  _onRelayTransactionRejected(reason: any, callback: JsonRpcCallback): void {
     const reasonStr = reason instanceof Error ? reason.message : JSON.stringify(reason)
     const msg = `Rejected relayTransaction call with reason: ${reasonStr}`
     this.logger.info(msg)
     callback(new Error(msg))
   }
 
-  _convertRelayRequestIdToRpcSendResponse (relayRequestID: PrefixedHexString, request: JsonRpcPayload): JsonRpcResponse {
+  _convertRelayRequestIdToRpcSendResponse(relayRequestID: PrefixedHexString, request: JsonRpcPayload): JsonRpcResponse {
     const id = (typeof request.id === 'string' ? parseInt(request.id) : request.id) ?? -1
     return {
       jsonrpc: '2.0',
@@ -405,7 +387,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * @param relayRequestID
    * @return transactionHash or undefined
    */
-  getPossibleTransactionHashFromRequestId (
+  getPossibleTransactionHashFromRequestId(
     relayRequestID: string
   ): string | undefined {
     return this.submittedRelayRequests.get(relayRequestID)?.possibleTransactionHash
@@ -421,14 +403,15 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    *  * If the transaction is no longer valid, return TX_NOTFOUND
    *  * If the transaction can still be mined, returns TX_FUTURE
    */
-  async getTransactionHashFromRequestId (
+  async getTransactionHashFromRequestId(
     relayRequestID: string
   ): Promise<string> {
-    const submissionDetails = await this._getSubmissionDetailsForRelayRequestId(relayRequestID)
-    const extraTopics = [null, null, [relayRequestID]]
+    const submissionDetails = await this._getSubmissionDetailsForRelayRequestId(relayRequestID as Hex)
+    const extraTopics = [null, null, [relayRequestID as Hex]]
+    const relayHubAddress = this.relayClient.dependencies.contractInteractor.getDeployment().relayHubAddress as Address
     const events = await this.relayClient.dependencies.contractInteractor.getPastEventsForHub(
       extraTopics,
-      { fromBlock: submissionDetails.submissionBlock },
+      { fromBlock: BigInt(submissionDetails.submissionBlock) },
       [TransactionRelayed, TransactionRejectedByPaymaster])
     if (events.length === 0) {
       if (parseInt(submissionDetails.validUntilTime) > Date.now()) {
@@ -436,7 +419,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
       }
       return TX_NOTFOUND
     }
-    return this._pickSingleEvent(events, relayRequestID).transactionHash
+    return this._pickSingleEvent(events, relayRequestID).transactionHash!
   }
 
   /**
@@ -444,8 +427,8 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * If the transaction is no longer valid, return a simulated reverted transaction receipt
    * If the transaction can still be mined, returns "null" like a regular RPC call would do
    */
-  async _createTransactionReceiptForRelayRequestID (
-    relayRequestID: string): Promise<TransactionReceipt | null> {
+  async _createTransactionReceiptForRelayRequestID(
+    relayRequestID: string): Promise<GsnTransactionReceipt | null> {
     const transactionHash = await this.getTransactionHashFromRequestId(relayRequestID)
     if (transactionHash === TX_FUTURE) {
       return null
@@ -453,73 +436,63 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     if (transactionHash === TX_NOTFOUND) {
       return this._createTransactionRevertedReceipt()
     }
-    const originalTransactionReceipt = await this.origProvider.send('eth_getTransactionReceipt', [transactionHash])
+    const originalTransactionReceipt = await this.origProvider.send('eth_getTransactionReceipt', [transactionHash]) as GsnTransactionReceipt | null
     if (originalTransactionReceipt == null) {
       return null
     }
     return this._getTranslatedGsnResponseResult(originalTransactionReceipt, relayRequestID)
   }
 
-  _getTranslatedGsnResponseResult (respResult: TransactionReceipt, relayRequestID?: string): TransactionReceipt {
-    const fixedTransactionReceipt = Object.assign({}, respResult)
-    const isUsingEthersV6 = this.relayClient.isUsingEthersV6()
-    if (isUsingEthersV6) {
-      // @ts-ignore
-      fixedTransactionReceipt.confirmations = () => {
-        return 77777
-      }
-    }
-    // adding non declared field to receipt object - can be used in tests
-    // @ts-ignore
+  _getTranslatedGsnResponseResult(respResult: GsnTransactionReceipt, relayRequestID?: string): GsnTransactionReceipt {
+    const fixedTransactionReceipt: GsnTransactionReceipt = { ...respResult }
     fixedTransactionReceipt.actualTransactionHash = fixedTransactionReceipt.transactionHash
     fixedTransactionReceipt.transactionIndex = respResult.transactionIndex ?? 7777
     fixedTransactionReceipt.logs = respResult.logs ?? []
     fixedTransactionReceipt.logs.forEach((it) => {
-      // @ts-ignore
-      it.logIndex = it.logIndex ?? it.index
+      if (it.logIndex == null) {
+        it.logIndex = (it as unknown as { index?: number }).index ?? 0
+      }
     })
     fixedTransactionReceipt.transactionHash = relayRequestID ?? fixedTransactionReceipt.transactionHash
-    // TODO: this was never intended, but it seems 'hash' is read by Ethers v6
-    // @ts-ignore
     fixedTransactionReceipt.hash = fixedTransactionReceipt.actualTransactionHash
 
-    // older Web3.js versions require 'status' to be an integer. Will be set to '0' if needed later in this method.
-    // @ts-ignore
     fixedTransactionReceipt.status = '1'
     if (respResult.logs.length === 0) {
       return fixedTransactionReceipt
     }
-    const iface = new Interface(relayHubAbi)
-    const logs: Array<LogDescription | undefined> = respResult.logs.map(
-      it => {
-        try {
-          return iface.parseLog(it)
-        } catch (e) {
-          return undefined
-        }
+    const abi = relayHubAbi as Abi
+    const decodedLogs = respResult.logs.map(log => {
+      try {
+        return decodeEventLog({
+          abi,
+          data: log.data as Hex,
+          topics: log.topics as [Hex, ...Hex[]]
+        })
+      } catch (_e) {
+        return undefined
       }
-    )
-    const paymasterRejectedEvents = logs.find((e) => e != null && e.name === 'TransactionRejectedByPaymaster')
+    })
+    const paymasterRejectedEvent = decodedLogs.find(e => e != null && e.eventName === 'TransactionRejectedByPaymaster')
 
-    if (paymasterRejectedEvents !== null && paymasterRejectedEvents !== undefined) {
-      const paymasterRejectionReason: string = paymasterRejectedEvents.args.reason
+    if (paymasterRejectedEvent != null) {
+      const args = paymasterRejectedEvent.args as unknown as Record<string, unknown>
+      const paymasterRejectionReason = args.reason as string | undefined
       if (paymasterRejectionReason !== undefined) {
         this.logger.info(`Paymaster rejected on-chain: ${paymasterRejectionReason}. changing status to zero`)
-        // @ts-ignore
         fixedTransactionReceipt.status = '0'
       }
       return fixedTransactionReceipt
     }
 
-    const transactionRelayed = logs.find((e: any) => e != null && e.name === 'TransactionRelayed')
-    if (transactionRelayed != null) {
-      const transactionRelayedStatus: number = transactionRelayed.args.status
+    const transactionRelayedEvent = decodedLogs.find(e => e != null && e.eventName === 'TransactionRelayed')
+    if (transactionRelayedEvent != null) {
+      const args = transactionRelayedEvent.args as unknown as Record<string, unknown>
+      const transactionRelayedStatus = args.status as number | undefined
       if (transactionRelayedStatus !== undefined) {
-        const status: string = transactionRelayedStatus.toString()
+        const status = transactionRelayedStatus.toString()
         // 0 signifies success
         if (status !== '0') {
           this.logger.info(`reverted relayed transaction, status code ${status}. changing status to zero`)
-          // @ts-ignore
           fixedTransactionReceipt.status = '0'
         }
       }
@@ -527,7 +500,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     return fixedTransactionReceipt
   }
 
-  _useGSN (payload: JsonRpcPayload): boolean {
+  _useGSN(payload: JsonRpcPayload): boolean {
     if (payload.method === 'eth_accounts') {
       return true
     }
@@ -538,7 +511,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     return gsnTransactionDetails?.useGSN ?? true
   }
 
-  async _fixGasFees (_txDetails: any): Promise<GsnTransactionDetails> {
+  async _fixGasFees(_txDetails: any): Promise<GsnTransactionDetails> {
     const txDetails = { ..._txDetails }
     if (txDetails.maxFeePerGas != null && txDetails.maxPriorityFeePerGas != null) {
       delete txDetails.gasPrice
@@ -564,32 +537,32 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
   // host: string
   // connected: boolean
 
-  supportsSubscriptions (): boolean {
+  supportsSubscriptions(): boolean {
     return false
   }
 
-  disconnect (): boolean {
+  disconnect(): boolean {
     return false
   }
 
-  newAccount (): AccountKeypair {
+  newAccount(): AccountKeypair {
     return this.relayClient.newAccount()
   }
 
-  async calculateGasFees (): Promise<{ maxFeePerGas: PrefixedHexString, maxPriorityFeePerGas: PrefixedHexString }> {
+  async calculateGasFees(): Promise<{ maxFeePerGas: PrefixedHexString, maxPriorityFeePerGas: PrefixedHexString }> {
     return await this.relayClient.calculateGasFees()
   }
 
-  addAccount (privateKey: PrefixedHexString): AccountKeypair {
+  addAccount(privateKey: PrefixedHexString): AccountKeypair {
     return this.relayClient.addAccount(privateKey)
   }
 
-  isEphemeralAccount (account: Address): boolean {
+  isEphemeralAccount(account: Address): boolean {
     const ephemeralAccounts = this.relayClient.dependencies.accountManager.getAccounts()
-    return ephemeralAccounts.find(it => isSameAddress(account, it)) != null
+    return ephemeralAccounts.find(it => isSameAddress(account, it as Address)) != null
   }
 
-  _sign (payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  _sign(payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
     const from = payload.params?.[0]
     if (from != null && this.isEphemeralAccount(from)) {
@@ -605,12 +578,16 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     this.origProviderSend(payload, callback)
   }
 
-  async _signTransaction (payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
+  async _signTransaction(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
-    const transactionConfig: TransactionRequest = payload.params?.[0]
-    const from = transactionConfig?.from as string
-    if (from != null && this.isEphemeralAccount(from)) {
-      const result = await this.relayClient.dependencies.accountManager.signTransaction(transactionConfig, from)
+    const transactionConfig = payload.params?.[0] as GsnTransactionConfig | undefined
+    if (transactionConfig == null) {
+      this.origProviderSend(payload, callback)
+      return
+    }
+    const from = transactionConfig.from as string
+    if (from != null && this.isEphemeralAccount(from as unknown as Address)) {
+      const result = await this.relayClient.dependencies.accountManager.signTransaction(transactionConfig, from as unknown as Address)
       const rpcResponse = {
         id,
         result,
@@ -622,13 +599,13 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     this.origProviderSend(payload, callback)
   }
 
-  _signTypedData (payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  async _signTypedData(payload: JsonRpcPayload, callback: JsonRpcCallback): Promise<void> {
     const id = (typeof payload.id === 'string' ? parseInt(payload.id) : payload.id) ?? -1
     const from = payload.params?.[0] as string
-    const typedData: TypedMessage<any> = payload.params?.[1]
-    if (from != null && this.isEphemeralAccount(from)) {
+    const typedData = payload.params?.[1] as Record<string, unknown>
+    if (from != null && this.isEphemeralAccount(from as unknown as Address)) {
       this.logger.debug(`Using ephemeral key for address ${from} to sign a Relay Request or a Typed Message`)
-      const result = this.relayClient.dependencies.accountManager.signTypedData(typedData, from)
+      const result = await this.relayClient.dependencies.accountManager.signTypedData(typedData, from as unknown as Address)
       const rpcResponse = {
         id,
         result,
@@ -639,7 +616,8 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
     if (this.asyncSignTypedData != null) {
       this.logger.debug('Using override for asyncSignTypedData to sign a Relay Request or a Typed Message')
-      this.asyncSignTypedData(typedData, from)
+      // @ts-ignore
+      void this.asyncSignTypedData(typedData.domain, typedData.types, typedData.message, from)
         .then(function (result) {
           const rpcResponse = {
             id,
@@ -657,7 +635,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     this.origProviderSend(payload, callback)
   }
 
-  _getAccounts (payload: JsonRpcPayload, callback: JsonRpcCallback): void {
+  _getAccounts(payload: JsonRpcPayload, callback: JsonRpcCallback): void {
     const isConnectedWithSigner = this.relayClient.isConnectedWithSigner()
     if (isConnectedWithSigner) {
       // if we are connected with a signer that has an address, we only return this address
@@ -690,10 +668,10 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
    * If all events are {@link TransactionRejectedByPaymaster}, return the last one.
    * If there is more than one successful {@link TransactionRelayed} throws as this is impossible for current Forwarder
    */
-  _pickSingleEvent (events: EventData[], relayRequestID: string): EventData {
-    const successes = events.filter(it => it.name === TransactionRelayed)
+  _pickSingleEvent(events: EventData[], relayRequestID: string): EventData {
+    const successes = events.filter(it => it.eventName === TransactionRelayed)
     if (successes.length === 0) {
-      const sorted = events.sort((a: EventData, b: EventData) => b.blockNumber - a.blockNumber)
+      const sorted = events.sort((a: EventData, b: EventData) => Number(BigInt(a.blockNumber!) - BigInt(b.blockNumber!)))
       return sorted[0]
     } else if (successes.length === 1) {
       return successes[0]
@@ -702,7 +680,7 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     }
   }
 
-  cacheSubmittedTransactionDetails (
+  cacheSubmittedTransactionDetails(
     relayingResult: RelayingResult
     // relayRequestID: string,
     // submissionBlock: number,
@@ -720,18 +698,8 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
     })
   }
 
-  _createTransactionRevertedReceipt (): TransactionReceipt {
-    let confirmations: any = 0
-    const isUsingEthersV6 = this.relayClient.isUsingEthersV6()
-    if (isUsingEthersV6) {
-      confirmations = () => {
-        return 77777
-      }
-    }
+  _createTransactionRevertedReceipt(): GsnTransactionReceipt {
     return {
-      // TODO: I am not sure about these two, these were not required in Web3.js
-      confirmations,
-      byzantium: false,
       type: 0,
       to: '',
       from: '',
@@ -740,12 +708,12 @@ export class RelayProvider implements ExternalProvider, Eip1193Provider {
       blockHash: '',
       transactionHash: '',
       transactionIndex: 0,
-      gasUsed: BigNumber.from(0),
+      gasUsed: 0n,
       logs: [],
       blockNumber: 0,
-      cumulativeGasUsed: BigNumber.from(0),
-      effectiveGasPrice: BigNumber.from(0),
-      status: 0 // failure
+      cumulativeGasUsed: 0n,
+      effectiveGasPrice: 0n,
+      status: '0'
     }
   }
 }

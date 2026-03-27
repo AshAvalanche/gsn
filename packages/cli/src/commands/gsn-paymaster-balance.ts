@@ -1,4 +1,4 @@
-import Web3 from 'web3'
+import { type Address, formatEther } from 'viem'
 import { CommandsLogic } from '../CommandsLogic'
 import { getNetworkUrl, getPaymasterAddress, getRelayHubAddress, gsnCommander } from '../utils'
 import { createCommandsLogger } from '@opengsn/logger/dist/CommandsWinstonLogger'
@@ -19,10 +19,10 @@ const commander = gsnCommander(['h', 'n'])
   }
   const logger = createCommandsLogger(commander.loglevel)
 
-  const logic = new CommandsLogic(nodeURL, logger, { relayHubAddress: hub })
+  const logic = new CommandsLogic(nodeURL, logger, { relayHubAddress: hub as Address })
   await logic.init()
-  const balance = await logic.getPaymasterBalance(paymaster)
-  console.log(`Account ${paymaster} has a GSN balance of ${Web3.utils.fromWei(balance.toString())} ETH`)
+  const balance = await logic.getPaymasterBalance(paymaster as Address)
+  console.log(`Account ${paymaster} has a GSN balance of ${formatEther(balance)} ETH`)
 })().catch(
   reason => {
     console.error(reason)

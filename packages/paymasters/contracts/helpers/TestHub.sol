@@ -1,6 +1,5 @@
 // SPDX-License-Identifier:MIT
-pragma solidity ^0.8.0;
-pragma experimental ABIEncoderV2;
+pragma solidity ^0.8.25;
 
 import "@opengsn/contracts/src/utils/GsnTypes.sol";
 import "@opengsn/contracts/src/interfaces/IPaymaster.sol";

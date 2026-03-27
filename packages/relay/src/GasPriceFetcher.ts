@@ -1,18 +1,18 @@
-import { BigNumber } from '@ethersproject/bignumber'
+// import { BigNumber } removed
 
 import { type LoggerInterface, type ContractInteractor } from '@opengsn/common'
 
 import axios from 'axios'
 
 export class GasPriceFetcher {
-  constructor (readonly gasPriceOracleUrl: string, readonly gasPriceOraclePath: string,
+  constructor(readonly gasPriceOracleUrl: string, readonly gasPriceOraclePath: string,
     readonly contractInteractor: ContractInteractor,
     readonly logger: LoggerInterface) {
   }
 
   // equivalent to `eval("blob"+path)` - but without evil eval
   // path is sequence of `.word` , `[number]`, `["string"]`
-  getJsonElement (blob: any, path: string, origPath = path): string | null {
+  getJsonElement(blob: any, path: string, origPath = path): string | null {
     const m = path.match(/^\.(\w+)|\["([^"]+)"\]|\[(\d+)\]/)
     if (m == null) throw new Error(`invalid path: ${origPath}: head of ${path}`)
     const rest = path.slice(m[0].length)
@@ -27,7 +27,7 @@ export class GasPriceFetcher {
     return this.getJsonElement(sub, rest, origPath)
   }
 
-  async getGasPrice (): Promise<BigNumber> {
+  async getGasPrice(): Promise<bigint> {
     if (this.gasPriceOracleUrl !== '') {
       try {
         const res = await axios.get(this.gasPriceOracleUrl, { timeout: 2000 })
@@ -35,7 +35,7 @@ export class GasPriceFetcher {
         if (typeof ret !== 'number' || isNaN(ret)) {
           throw new Error(`not a number: ${ret}`)
         }
-        return BigNumber.from(ret * 1e9)
+        return BigInt(Math.round(ret * 1e9))
       } catch (e: any) {
         // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
         this.logger.error(`failed to access gas oracle. using getGasPrice() instead.\n(url=${this.gasPriceOracleUrl} path=${this.gasPriceOraclePath} err: ${e.message})`)

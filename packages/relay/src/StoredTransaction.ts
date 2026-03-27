@@ -1,6 +1,4 @@
-import { Capability, type FeeMarketEIP1559Transaction, type Transaction, type TypedTransaction } from '@ethereumjs/tx'
-import * as ethUtils from 'ethereumjs-util'
-import { type PrefixedHexString } from 'ethereumjs-util'
+import { type Hex, type TransactionSerializable, serializeTransaction, keccak256 } from 'viem'
 import { type Address } from '@opengsn/common'
 
 export enum ServerAction {
@@ -28,11 +26,11 @@ export interface StoredTransactionSerialized {
   readonly gas: number
   maxFeePerGas: number
   maxPriorityFeePerGas: number
-  readonly data: PrefixedHexString
+  readonly data: Hex
   readonly nonce: number
-  readonly txId: PrefixedHexString
-  readonly value: PrefixedHexString
-  readonly rawSerializedTx: PrefixedHexString
+  readonly txId: Hex
+  readonly value: Hex
+  readonly rawSerializedTx: Hex
 }
 
 export interface NonceSigner {
@@ -43,7 +41,7 @@ export interface NonceSigner {
 }
 
 export interface ShortBlockInfo {
-  hash: PrefixedHexString
+  hash: Hex
   number: number
   timestamp: number | string
 }
@@ -51,32 +49,40 @@ export interface ShortBlockInfo {
 export type StoredTransaction = StoredTransactionSerialized & StoredTransactionMetadata & NonceSigner
 
 /**
- * Make sure not to pass {@link StoredTransaction} as {@param metadata}, as it will override fields from {@param tx}!
- * @param tx
- * @param metadata
+ * Convert a viem TransactionSerializable + raw signed tx into StoredTransaction format.
+ * @param tx - the transaction data (unserialized fields)
+ * @param rawTx - the signed, serialized raw transaction hex
+ * @param metadata - server-side metadata
  */
-export function createStoredTransaction (tx: TypedTransaction, metadata: StoredTransactionMetadata): StoredTransaction {
+export function createStoredTransaction(
+  tx: TransactionSerializable,
+  rawTx: Hex,
+  metadata: StoredTransactionMetadata
+): StoredTransaction {
   if (tx.to == null) {
     throw new Error('tx.to must be defined')
   }
-  const details: Partial<StoredTransactionSerialized> =
-    {
-      to: ethUtils.bufferToHex(tx.to.toBuffer()),
-      gas: ethUtils.bufferToInt(tx.gasLimit.toBuffer()),
-      data: ethUtils.bufferToHex(tx.data),
-      nonce: ethUtils.bufferToInt(tx.nonce.toBuffer()),
-      txId: ethUtils.bufferToHex(tx.hash()),
-      value: ethUtils.bufferToHex(tx.value.toBuffer()),
-      rawSerializedTx: ethUtils.bufferToHex(tx.serialize())
-    }
-  if (tx.supports(Capability.EIP1559FeeMarket)) {
-    tx = tx as FeeMarketEIP1559Transaction
-    details.maxFeePerGas = ethUtils.bufferToInt(tx.maxFeePerGas.toBuffer())
-    details.maxPriorityFeePerGas = ethUtils.bufferToInt(tx.maxPriorityFeePerGas.toBuffer())
-  } else {
-    tx = tx as Transaction
-    details.maxFeePerGas = ethUtils.bufferToInt(tx.gasPrice.toBuffer())
-    details.maxPriorityFeePerGas = ethUtils.bufferToInt(tx.gasPrice.toBuffer())
+
+  const txId = keccak256(rawTx)
+
+  const details: Partial<StoredTransactionSerialized> = {
+    to: tx.to as Address,
+    gas: Number(tx.gas ?? 0),
+    data: (tx.data ?? '0x') as Hex,
+    nonce: Number(tx.nonce ?? 0),
+    txId,
+    value: (tx.value != null ? `0x${tx.value.toString(16)}` : '0x0') as Hex,
+    rawSerializedTx: rawTx
   }
+
+  // Extract gas price fields based on transaction type
+  if ('maxFeePerGas' in tx && tx.maxFeePerGas != null) {
+    details.maxFeePerGas = Number(tx.maxFeePerGas)
+    details.maxPriorityFeePerGas = Number((tx as { maxPriorityFeePerGas?: bigint }).maxPriorityFeePerGas ?? 0n)
+  } else if ('gasPrice' in tx && tx.gasPrice != null) {
+    details.maxFeePerGas = Number(tx.gasPrice)
+    details.maxPriorityFeePerGas = Number(tx.gasPrice)
+  }
+
   return Object.assign({}, details as StoredTransactionSerialized, metadata)
 }

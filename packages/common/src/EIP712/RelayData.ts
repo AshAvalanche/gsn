@@ -1,5 +1,4 @@
-import { type Address, type IntString } from '../types/Aliases'
-import { type PrefixedHexString } from 'ethereumjs-util'
+import { type Address, type IntString, type PrefixedHexString } from '../types/Aliases'
 
 export interface RelayData {
   maxFeePerGas: IntString
